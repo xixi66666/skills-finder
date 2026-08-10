@@ -16,9 +16,14 @@ export async function fetchRepositories(query: RepositoryQuery = {}): Promise<Re
   return data
 }
 
-export async function fetchRepositoryDetail(owner: string, name: string): Promise<RepositoryDetail> {
+export async function fetchRepositoryDetail(
+  owner: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<RepositoryDetail> {
   const { data } = await http.get<RepositoryDetail>(
     `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+    { signal },
   )
   return data
 }
