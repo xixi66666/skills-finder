@@ -14,6 +14,7 @@ CREATE TABLE repositories (
   html_url VARCHAR(512) NOT NULL,
   homepage VARCHAR(512) NULL,
   description TEXT NULL,
+  introduction TEXT NULL,
   language VARCHAR(100) NULL,
   topics TEXT NOT NULL,
   categories TEXT NOT NULL,
