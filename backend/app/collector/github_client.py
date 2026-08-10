@@ -30,6 +30,7 @@ class GitHubRepository:
     open_issues_count: int
     archived: bool
     disabled: bool
+    fork: bool
     github_created_at: datetime
     github_updated_at: datetime
 
@@ -50,6 +51,7 @@ class GitHubRepository:
             open_issues_count=int(payload.get("open_issues_count") or 0),
             archived=bool(payload.get("archived") or False),
             disabled=bool(payload.get("disabled") or False),
+            fork=bool(payload.get("fork") or False),
             github_created_at=_parse_datetime(payload.get("created_at")),
             github_updated_at=_parse_datetime(payload.get("updated_at")),
         )
