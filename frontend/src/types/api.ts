@@ -36,6 +36,7 @@ export interface RepositoryDetail {
   owner: string
   name: string
   description: string | null
+  introduction: string | null
   html_url: string
   homepage: string | null
   language: string | null

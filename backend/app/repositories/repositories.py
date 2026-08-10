@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +60,31 @@ class RepositoryStore:
             select(Repository).where(Repository.available.is_(True))
         )
         return list(result.scalars().all())
+
+    async def list_without_introduction(
+        self, *, category: str | None = None, limit: int = 5
+    ) -> list[Repository]:
+        query = select(Repository).where(
+            Repository.available.is_(True),
+            Repository.introduction.is_(None),
+        )
+        if category:
+            query = query.where(
+                cast(Repository.categories, Text).like(f'%"{category}"%')
+            )
+        query = query.order_by(
+            Repository.stars_count.desc(),
+            Repository.id.asc(),
+        ).limit(limit)
+        result = await self._session.execute(query)
+        return list(result.scalars().all())
+
+    async def update_introduction(self, github_id: int, text: str) -> None:
+        await self._session.execute(
+            Repository.__table__.update()
+            .where(Repository.github_id == github_id)
+            .values(introduction=text)
+        )
 
     async def mark_unavailable(self, github_ids: list[int]) -> None:
         if not github_ids:

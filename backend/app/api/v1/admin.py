@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.api.dependencies import require_admin_key
 from app.core.scheduler import acquire_collection_lock, run_collection
@@ -26,3 +26,20 @@ async def trigger_collection(
         )
     background_tasks.add_task(run_collection, lease)
     return {"status": "accepted"}
+
+
+@router.post("/introductions", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_introduction_backfill(
+    background_tasks: BackgroundTasks,
+    _: None = Depends(require_admin_key),
+    category: str | None = Query(default=None, pattern="^(AGENT|SKILL|MCP)$"),
+    limit: int = Query(default=5, ge=1, le=20),
+) -> dict[str, str]:
+    background_tasks.add_task(run_introduction_backfill, category=category, limit=limit)
+    return {"status": "accepted"}
+
+
+async def run_introduction_backfill(*, category: str | None, limit: int) -> None:
+    from app.services.introduction_service import run_introduction_backfill as backfill
+
+    await backfill(category=category, limit=limit)

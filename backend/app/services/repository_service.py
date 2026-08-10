@@ -135,6 +135,7 @@ class RepositoryService:
             owner=repository.owner,
             name=repository.name,
             description=repository.description,
+            introduction=repository.introduction,
             html_url=repository.html_url,
             homepage=repository.homepage,
             language=repository.language,

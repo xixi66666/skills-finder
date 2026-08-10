@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     min_stars: int = 100
     cors_origins: str = "http://localhost:5173"
+    intro_enabled: bool = False
+    intro_model: str = "opencode-go/deepseek-v4-flash"
+    intro_batch_size: int = 5
+    intro_timeout_seconds: int = 300
 
     @model_validator(mode="after")
     def _load_token_from_file(self) -> Settings:

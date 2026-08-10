@@ -75,3 +75,36 @@ def test_verify_admin_key_does_not_leak_secret(monkeypatch: pytest.MonkeyPatch) 
     assert verify_admin_key("super-secret-admin-key-value-2") is False
     assert verify_admin_key(None) is False
 
+
+def test_trigger_introductions_returns_202(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict] = []
+
+    async def fake_backfill(**kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(admin, "run_introduction_backfill", fake_backfill)
+    response = client.post(
+        "/api/v1/admin/introductions?category=SKILL&limit=5",
+        headers={"X-Admin-Key": SECRET},
+    )
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+    assert calls == [{"category": "SKILL", "limit": 5}]
+
+
+def test_trigger_introductions_rejects_invalid_category(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/v1/admin/introductions?category=BAD",
+        headers={"X-Admin-Key": SECRET},
+    )
+    assert response.status_code == 422
+
+
+def test_trigger_introductions_requires_admin_key(client: TestClient) -> None:
+    response = client.post("/api/v1/admin/introductions?limit=5")
+    assert response.status_code == 401
+

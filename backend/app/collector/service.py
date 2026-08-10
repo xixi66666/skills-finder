@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -14,10 +15,13 @@ from app.collector.github_client import (
     GitHubRepository,
     GitHubRequestError,
 )
-from app.db.models import CollectionRun
+from app.core.config import settings
+from app.db.models import CollectionRun, Repository
 from app.repositories.collection_runs import CollectionRunStore
 from app.repositories.repositories import RepositoryStore
 from app.repositories.snapshots import SnapshotStore
+
+logger = logging.getLogger(__name__)
 
 DISCOVERY_QUERIES = (
     "topic:ai-agent",
@@ -108,6 +112,7 @@ class CollectionService:
 
     async def _persist_discovered(self, result: CollectionResult) -> None:
         seen_ids: set[int] = set()
+        intro_pending: list[Repository] = []
         for repo in self.discovered:
             if repo.github_id in seen_ids:
                 continue
@@ -126,11 +131,15 @@ class CollectionService:
                 snapshot_date=self._business_date,
                 stars_count=repo.stars_count,
             )
+            if settings.intro_enabled and updated.introduction is None:
+                intro_pending.append(updated)
+        await self._generate_introductions(intro_pending)
         await self.session.commit()
 
     async def _refresh_available(self, result: CollectionResult) -> None:
         available = await self.repository_store.list_available()
         unavailable: list[int] = []
+        intro_pending: list[Repository] = []
         for repository in available:
             try:
                 repo = await self.github_client.get_repository(repository.full_name)
@@ -154,8 +163,37 @@ class CollectionService:
                 stars_count=repo.stars_count,
             )
             result.updated_count += 1
+            if settings.intro_enabled and updated.introduction is None:
+                intro_pending.append(updated)
+        await self._generate_introductions(intro_pending)
         await self.repository_store.mark_unavailable(unavailable)
         await self.session.commit()
+
+    async def _generate_introductions(self, repos: list[Repository]) -> None:
+        if not repos:
+            return
+        import asyncio
+
+        from app.services.introduction_service import (
+            IntroductionGenerationError,
+            brief_from_repository,
+            generate_introductions,
+        )
+
+        batch_size = settings.intro_batch_size
+        for start in range(0, len(repos), batch_size):
+            batch = repos[start : start + batch_size]
+            try:
+                texts = await asyncio.to_thread(
+                    generate_introductions,
+                    [brief_from_repository(repo) for repo in batch],
+                )
+            except IntroductionGenerationError as exc:
+                logger.warning("introduction generation failed: %s", exc)
+                continue
+            for repo, text in zip(batch, texts):
+                if text:
+                    await self.repository_store.update_introduction(repo.github_id, text)
 
     def _eligible(self, repo: GitHubRepository) -> bool:
         if repo.archived or repo.disabled or repo.fork:

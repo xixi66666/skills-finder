@@ -103,6 +103,15 @@ onUnmounted(() => controller?.abort())
         </a>
       </header>
 
+      <section v-if="detail.introduction" class="detail-section" data-testid="introduction">
+        <h2 class="section-title">项目介绍</h2>
+        <div class="introduction-card">
+          <p v-for="paragraph in detail.introduction.split(/\n+/)" :key="paragraph" class="introduction-text">
+            {{ paragraph }}
+          </p>
+        </div>
+      </section>
+
       <section class="detail-section">
         <h2 class="section-title">最近 30 天趋势</h2>
         <div class="chart-card">
@@ -274,6 +283,25 @@ onUnmounted(() => controller?.abort())
   border-radius: var(--radius-card);
   background-color: var(--color-bg);
   overflow-x: auto;
+}
+
+.introduction-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background-color: var(--color-bg);
+}
+
+.introduction-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .rules-list,

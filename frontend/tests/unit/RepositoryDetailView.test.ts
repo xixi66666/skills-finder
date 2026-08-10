@@ -29,6 +29,7 @@ function makeDetail(overrides: Partial<RepositoryDetail> = {}): RepositoryDetail
     owner: 'octocat',
     name: 'agent-hub',
     description: 'An agent framework',
+    introduction: null,
     html_url: 'https://github.com/octocat/agent-hub',
     homepage: null,
     language: 'Python',
@@ -71,6 +72,22 @@ describe('RepositoryDetailView', () => {
     expect(wrapper.text()).toContain('octocat/agent-hub')
     expect(wrapper.text()).toContain('An agent framework')
     expect(wrapper.text()).toContain('1,500')
+  })
+
+  it('renders introduction section when present', async () => {
+    mockFetchDetail.mockResolvedValue(
+      makeDetail({ introduction: '这是项目介绍的第一段。\n这是第二段。' }),
+    )
+    const wrapper = await mountDetail()
+    expect(wrapper.find('[data-testid="introduction"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('这是项目介绍的第一段。')
+    expect(wrapper.text()).toContain('这是第二段。')
+  })
+
+  it('hides introduction section when absent', async () => {
+    mockFetchDetail.mockResolvedValue(makeDetail({ introduction: null }))
+    const wrapper = await mountDetail()
+    expect(wrapper.find('[data-testid="introduction"]').exists()).toBe(false)
   })
 
   it('renders not-found state on 404', async () => {

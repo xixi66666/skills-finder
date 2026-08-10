@@ -50,6 +50,7 @@ class Repository(Base):
     html_url: Mapped[str] = mapped_column(String(512))
     homepage: Mapped[str | None] = mapped_column(String(512), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    introduction: Mapped[str | None] = mapped_column(Text, nullable=True)
     language: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     topics: Mapped[list[Any]] = mapped_column(JsonText)
     categories: Mapped[list[Any]] = mapped_column(JsonText)

@@ -37,6 +37,7 @@ class RepositoryDetail(BaseModel):
     owner: str
     name: str
     description: str | None = None
+    introduction: str | None = None
     html_url: str
     homepage: str | None = None
     language: str | None = None
