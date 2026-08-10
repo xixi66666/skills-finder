@@ -5,8 +5,18 @@ import secrets
 from fastapi import Header, HTTPException, status
 
 from app.core.config import settings
+from app.services.repository_service import RepositoryService
+from app.services.stats_service import StatsService
 
 ADMIN_KEY_HEADER = "X-Admin-Key"
+
+
+def get_repository_service() -> RepositoryService:
+    return RepositoryService(business_timezone=settings.business_timezone)
+
+
+def get_stats_service() -> StatsService:
+    return StatsService(business_timezone=settings.business_timezone)
 
 
 def verify_admin_key(value: str | None) -> bool:
