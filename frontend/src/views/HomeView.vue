@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import FilterSidebar from '@/components/FilterSidebar.vue'
@@ -125,23 +125,51 @@ onMounted(async () => {
   const [langs, statsData] = await Promise.all([fetchLanguages(), fetchStats()])
   languages.value = langs
   stats.value = statsData
+  document.addEventListener('keydown', onKeydown)
+})
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && filtersVisible.value) {
+    filtersVisible.value = false
+    const trigger = document.querySelector<HTMLButtonElement>('[data-testid="open-filters"]')
+    trigger?.focus()
+  }
+}
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
 <template>
   <div class="home-layout">
-    <FilterSidebar
-      :model-value="{ category: filters.category, language: filters.language, minStars: filters.minStars }"
-      :languages="languages"
-      @update:model-value="
-        (value) =>
-          updateFilters({ category: value.category, language: value.language, minStars: value.minStars })
-      "
-      @close="filtersVisible = false"
-    />
+    <div v-if="filtersVisible" class="drawer-backdrop" data-testid="drawer-backdrop" @click="filtersVisible = false"></div>
+    <aside
+      class="filter-drawer"
+      :class="{ open: filtersVisible }"
+      aria-hidden="false"
+    >
+      <FilterSidebar
+        :model-value="{ category: filters.category, language: filters.language, minStars: filters.minStars }"
+        :languages="languages"
+        @update:model-value="
+          (value) =>
+            updateFilters({ category: value.category, language: value.language, minStars: value.minStars })
+        "
+        @close="filtersVisible = false"
+      />
+    </aside>
     <div class="home-content">
       <header class="home-header">
         <div class="header-stats">
+          <button
+            type="button"
+            class="mobile-filter-button"
+            data-testid="open-filters"
+            @click="filtersVisible = true"
+          >
+            筛选
+          </button>
           <span>{{ stats.total_repositories }} 个仓库</span>
           <span v-if="lastCollectionAt" class="header-muted">
             最近更新：{{ lastCollectionAt }}
@@ -230,6 +258,19 @@ onMounted(async () => {
   gap: var(--spacing-4);
 }
 
+.filter-drawer {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.drawer-backdrop {
+  display: none;
+}
+
+.mobile-filter-button {
+  display: none;
+}
+
 .home-header {
   display: flex;
   flex-direction: column;
@@ -238,10 +279,56 @@ onMounted(async () => {
 
 .header-stats {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--spacing-3);
   font-size: 14px;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .home-layout {
+    display: block;
+  }
+
+  .filter-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: 280px;
+    max-width: 85vw;
+    padding: var(--spacing-4);
+    background-color: var(--color-bg);
+    border-right: 1px solid var(--color-border);
+    box-shadow: var(--color-shadow);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    overflow-y: auto;
+  }
+
+  .filter-drawer.open {
+    transform: translateX(0);
+  }
+
+  .drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    display: block;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .mobile-filter-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button);
+    background-color: transparent;
+    color: var(--color-accent);
+    font-size: 13px;
+  }
 }
 
 .header-muted {
