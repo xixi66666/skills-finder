@@ -57,9 +57,12 @@ async def run_collection(lease: CollectionLockLease | None) -> None:
     from app.repositories.snapshots import SnapshotStore
 
     try:
-        async with async_session_factory() as session:
+        async with (
+            async_session_factory() as session,
+            GitHubClient(token=settings.github_token.get_secret_value()) as github_client,
+        ):
             service = CollectionService(
-                github_client=GitHubClient(token=settings.github_token.get_secret_value()),
+                github_client=github_client,
                 repository_store=RepositoryStore(session),
                 snapshot_store=SnapshotStore(session),
                 run_store=CollectionRunStore(session),
@@ -69,7 +72,11 @@ async def run_collection(lease: CollectionLockLease | None) -> None:
                 trigger_type="manual",
             )
             result = await service.run()
-            logger.info("collection run %s finished with status %s", result.run_id, result.status)
+            logger.info(
+                "collection run %s finished with status %s",
+                result.run_id,
+                result.status,
+            )
     finally:
         if lease is not None:
             await lease.release()

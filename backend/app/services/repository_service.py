@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, Text, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import REPOSITORY_NOT_FOUND, ApiError
@@ -27,17 +27,13 @@ class RepositoryService:
         min_stars: int | None,
         q: str | None,
     ) -> dict:
-        today = datetime.now(self._timezone).date()
+        latest, daily_base, weekly_base = self._snapshot_joins()
 
-        latest, daily_base, weekly_base = self._snapshot_joins(today)
-
-        latest_stars = latest.c.stars_count
-        daily_stars = (latest_stars - func.coalesce(daily_base.c.stars_count, latest_stars)).label(
-            "daily_stars"
-        )
-        weekly_stars = (latest_stars - func.coalesce(weekly_base.c.stars_count, latest_stars)).label(
-            "weekly_stars"
-        )
+        latest_stars = cast(latest.c.stars_count, Integer).label("latest_stars")
+        base_daily = cast(daily_base.c.stars_count, Integer)
+        base_weekly = cast(weekly_base.c.stars_count, Integer)
+        daily_stars = (latest_stars - base_daily).label("daily_stars")
+        weekly_stars = (latest_stars - base_weekly).label("weekly_stars")
 
         query = (
             select(
@@ -53,7 +49,9 @@ class RepositoryService:
         )
 
         if category:
-            query = query.where(func.json_contains(Repository.categories, f'"{category}"'))
+            query = query.where(
+                cast(Repository.categories, Text).like(f'%"{category}"%')
+            )
         if language:
             query = query.where(Repository.language == language)
         if min_stars is not None:
@@ -74,7 +72,8 @@ class RepositoryService:
             sort_col = daily_stars
 
         query = query.order_by(
-            sort_col.desc().nullslast(),
+            sort_col.is_(None),
+            sort_col.desc(),
             Repository.stars_count.desc(),
             Repository.id.desc(),
         )
@@ -152,10 +151,14 @@ class RepositoryService:
             trend=trend,
         )
 
-    def _snapshot_joins(self, today: datetime.date):
+    def _snapshot_joins(self):
         latest = self._latest_snapshot()
-        daily_base = self._baseline_snapshot(today - timedelta(days=1))
-        weekly_base = self._baseline_snapshot(today - timedelta(days=7))
+        daily_base = self._baseline_snapshot(
+            latest.c.snapshot_date, offset_days=1
+        )
+        weekly_base = self._baseline_snapshot(
+            latest.c.snapshot_date, offset_days=7
+        )
         return latest, daily_base, weekly_base
 
     def _latest_snapshot(self):
@@ -181,7 +184,8 @@ class RepositoryService:
             .subquery()
         )
 
-    def _baseline_snapshot(self, cutoff: datetime.date):
+    def _baseline_snapshot(self, latest_date, offset_days: int):
+        cutoff = latest_date.op("-")(text(f"INTERVAL {offset_days} DAY"))
         base_date = (
             select(
                 StarSnapshot.repository_id.label("repository_id"),

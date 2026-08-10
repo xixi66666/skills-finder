@@ -49,7 +49,9 @@ class RepositoryStore:
         await self._session.execute(stmt)
 
         result = await self._session.execute(
-            select(Repository).where(Repository.github_id == repo.github_id)
+            select(Repository)
+            .where(Repository.github_id == repo.github_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one()
 

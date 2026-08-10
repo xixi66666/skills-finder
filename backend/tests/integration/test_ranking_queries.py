@@ -79,6 +79,7 @@ async def seed(session: AsyncSession) -> dict[str, int]:
 
     await snapshot_store.upsert_daily(ids["agent-a"], date(2026, 8, 1), 900)
     await snapshot_store.upsert_daily(ids["agent-a"], date(2026, 8, 2), 950)
+    await snapshot_store.upsert_daily(ids["agent-a"], date(2026, 8, 8), 980)
     await snapshot_store.upsert_daily(ids["agent-a"], date(2026, 8, 9), 1000)
 
     await snapshot_store.upsert_daily(ids["agent-b"], date(2026, 8, 9), 900)
@@ -104,8 +105,8 @@ async def test_ranking_daily_growth_order(session: AsyncSession) -> None:
     assert names[0] == "agent-a"
     assert result["total"] == 4
     agent_a = next(i for i in result["items"] if i.name == "agent-a")
-    assert agent_a.daily_stars == 50
-    assert agent_a.weekly_stars == 100
+    assert agent_a.daily_stars == 20
+    assert agent_a.weekly_stars == 50
 
 
 async def test_ranking_negative_growth(session: AsyncSession) -> None:

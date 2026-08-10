@@ -20,7 +20,10 @@ def engine():
     yield engine
     import asyncio
 
-    asyncio.get_event_loop().run_until_complete(engine.dispose())
+    try:
+        asyncio.get_event_loop().run_until_complete(engine.dispose())
+    except RuntimeError:
+        asyncio.run(engine.dispose())
 
 
 async def test_only_one_connection_acquires_lock(engine) -> None:
