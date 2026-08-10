@@ -49,11 +49,20 @@ Copy-Item .env.example .env
 
 ```dotenv
 DATABASE_URL=mysql+asyncmy://skill_finder:change_me@127.0.0.1:3306/skill_finder?charset=utf8mb4
-GITHUB_TOKEN=ghp_your_personal_access_token
 ADMIN_KEY=replace_with_a_long_random_value
 ```
 
+GitHub Token 保存在本地文件（不经过环境变量）：
+
+```powershell
+# 在 backend/.secrets/github_token 中粘贴你的 token（单行、无换行）
+New-Item -ItemType Directory -Force -Path .secrets
+Set-Content -Path .secrets\github_token -Value "ghp_your_personal_access_token" -NoNewline
+```
+
+> `.secrets/` 已被 `.gitignore` 排除，不会提交到版本库。
 > 需要 GitHub Personal Access Token（至少 `public_repo` 只读权限）。
+> 若想改用环境变量，也可设置 `GITHUB_TOKEN`，文件优先级更高。
 
 ### 4. 安装后端依赖并启动
 

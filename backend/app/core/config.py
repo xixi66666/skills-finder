@@ -1,5 +1,19 @@
-from pydantic import SecretStr
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+SECRETS_DIR = Path(__file__).resolve().parents[2] / ".secrets"
+GITHUB_TOKEN_FILE = SECRETS_DIR / "github_token"
+
+
+def _read_token_file() -> str:
+    try:
+        return GITHUB_TOKEN_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
 
 
 class Settings(BaseSettings):
@@ -13,6 +27,12 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     min_stars: int = 100
     cors_origins: str = "http://localhost:5173"
+
+    @model_validator(mode="after")
+    def _load_token_from_file(self) -> Settings:
+        if not self.github_token.get_secret_value():
+            self.github_token = SecretStr(_read_token_file())
+        return self
 
 
 settings = Settings()
