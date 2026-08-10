@@ -121,7 +121,18 @@ cd backend
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-> MySQL 集成测试需要设置 `TEST_DATABASE_URL`（如 `mysql+asyncmy://user:pass@127.0.0.1:3306/skill_finder_test?charset=utf8mb4`），未设置时这些测试明确跳过。
+> **警告**：MySQL 集成测试的 fixture 会 **DROP 并重建全部数据表**。必须使用**独立测试库**，严禁指向生产库（如 `skill_finder`）。
+>
+> 先创建测试库并执行建表脚本，再设置 `TEST_DATABASE_URL`：
+>
+> ```powershell
+> mysql -u root -p -e "CREATE DATABASE skill_finder_test CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
+> Get-Content backend/sql/schema.sql -Raw | mysql -u root -p skill_finder_test
+> $env:TEST_DATABASE_URL = "mysql+asyncmy://user:pass@127.0.0.1:3306/skill_finder_test?charset=utf8mb4"
+> .\.venv\Scripts\python.exe -m pytest tests/integration -q
+> ```
+>
+> 未设置 `TEST_DATABASE_URL` 时集成测试明确跳过，不触碰任何数据库。
 
 ### 前端
 
