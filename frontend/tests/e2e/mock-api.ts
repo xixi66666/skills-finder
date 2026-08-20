@@ -60,6 +60,11 @@ const MOCK_DETAIL = {
   owner: 'octocat',
   name: 'agent-hub',
   description: 'Composable agent framework',
+  introduction: {
+    introduction: '一个可组合的 AI Agent 框架，支持多工具调用与记忆管理。',
+    usage: '直接运行 npm install 后即可集成到现有项目。',
+    domains: ['AI Agent', '自动化', '工具调用'],
+  },
   html_url: 'https://github.com/octocat/agent-hub',
   homepage: 'https://example.com',
   language: 'Python',

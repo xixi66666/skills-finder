@@ -29,7 +29,7 @@ CREATE TABLE repositories (
   github_updated_at DATETIME NOT NULL,
   last_synced_at DATETIME NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_repositories_github_id (github_id),
   UNIQUE KEY uk_repositories_full_name (full_name),

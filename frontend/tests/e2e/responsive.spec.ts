@@ -28,31 +28,13 @@ test('mobile buttons do not truncate text', async ({ page }) => {
   expect(overflowed).toBe(0)
 })
 
-test('mobile trend chart renders non-empty pixels', async ({ page }) => {
+test('mobile introduction content does not overflow', async ({ page }) => {
   await page.goto('/repositories/octocat/agent-hub')
-  await expect(page.getByTestId('trend-chart')).toBeVisible()
-  const chart = page.getByTestId('trend-chart')
-  const box = await chart.boundingBox()
+  await expect(page.getByTestId('introduction')).toBeVisible()
+  const card = page.getByTestId('introduction')
+  const box = await card.boundingBox()
   expect(box).not.toBeNull()
-  const strokeColor = await chart.locator('path').first().evaluate((el) => {
-    const stroke = getComputedStyle(el).stroke
-    return stroke && stroke !== 'none' ? stroke : null
-  })
-  expect(strokeColor).not.toBeNull()
-  const pathCount = await chart.locator('path, circle').count()
-  expect(pathCount).toBeGreaterThan(0)
-  const drawnPixels = await page.evaluate(() => {
-    const svg = document.querySelector('[data-testid="trend-chart"]')
-    if (!svg) return 0
-    const paths = svg.querySelectorAll('path, circle')
-    let pixels = 0
-    paths.forEach((el) => {
-      const length = (el as SVGGeometryElement).getTotalLength?.() ?? 0
-      pixels += Math.max(1, Math.round(length))
-    })
-    return pixels
-  })
-  expect(drawnPixels).toBeGreaterThan(10)
+  await assertNoHorizontalScroll(page)
 })
 
 test('keyboard can open filters and navigate', async ({ page }) => {

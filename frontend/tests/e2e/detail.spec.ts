@@ -6,10 +6,10 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
-test('shows repository detail with trend', async ({ page }) => {
+test('shows repository detail with introduction', async ({ page }) => {
   await page.goto('/repositories/octocat/agent-hub')
   await expect(page.getByRole('heading', { name: 'octocat/agent-hub' })).toBeVisible()
-  await expect(page.getByTestId('trend-chart')).toBeVisible()
+  await expect(page.getByTestId('introduction')).toBeVisible()
   await expect(page.getByText('Composable agent framework')).toBeVisible()
 })
 

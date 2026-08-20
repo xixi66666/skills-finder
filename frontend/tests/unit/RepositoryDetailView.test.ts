@@ -74,14 +74,22 @@ describe('RepositoryDetailView', () => {
     expect(wrapper.text()).toContain('1,500')
   })
 
-  it('renders introduction section when present', async () => {
+  it('renders introduction sections when present', async () => {
     mockFetchDetail.mockResolvedValue(
-      makeDetail({ introduction: '这是项目介绍的第一段。\n这是第二段。' }),
+      makeDetail({
+        introduction: {
+          introduction: '这是项目介绍。',
+          usage: '直接运行 npm install。',
+          domains: ['AI Agent', '自动化'],
+        },
+      }),
     )
     const wrapper = await mountDetail()
     expect(wrapper.find('[data-testid="introduction"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('这是项目介绍的第一段。')
-    expect(wrapper.text()).toContain('这是第二段。')
+    expect(wrapper.text()).toContain('这是项目介绍。')
+    expect(wrapper.text()).toContain('直接运行 npm install。')
+    expect(wrapper.text()).toContain('AI Agent')
+    expect(wrapper.text()).toContain('自动化')
   })
 
   it('hides introduction section when absent', async () => {
@@ -113,23 +121,10 @@ describe('RepositoryDetailView', () => {
     expect(wrapper.text()).toContain('octocat/agent-hub')
   })
 
-  it('renders trend chart only with real snapshot data', async () => {
-    mockFetchDetail.mockResolvedValue(makeDetail({ trend: [] }))
+  it('does not render the removed 30-day trend section', async () => {
+    mockFetchDetail.mockResolvedValue(makeDetail())
     const wrapper = await mountDetail()
+    expect(wrapper.text()).not.toContain('最近 30 天趋势')
     expect(wrapper.find('[data-testid="trend-chart"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="no-trend"]').exists()).toBe(true)
-  })
-
-  it('does not fabricate missing dates', async () => {
-    const detail = makeDetail()
-    detail.trend = [
-      { snapshot_date: '2026-07-01', stars_count: 1000 },
-      { snapshot_date: '2026-08-01', stars_count: 1400 },
-    ]
-    mockFetchDetail.mockResolvedValue(detail)
-    const wrapper = await mountDetail()
-    const chart = wrapper.find('[data-testid="trend-chart"]')
-    expect(chart.exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('2026-07-02')
   })
 })

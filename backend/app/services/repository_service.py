@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -9,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.errors import REPOSITORY_NOT_FOUND, ApiError
 from app.db.models import CollectionRun, Repository, StarSnapshot
 from app.schemas.common import PageParams
-from app.schemas.repository import RepositoryDetail, RepositoryListItem
+from app.schemas.repository import (
+    RepositoryDetail,
+    RepositoryIntroduction,
+    RepositoryListItem,
+)
 
 
 class RepositoryService:
@@ -135,7 +140,7 @@ class RepositoryService:
             owner=repository.owner,
             name=repository.name,
             description=repository.description,
-            introduction=repository.introduction,
+            introduction=_parse_introduction(repository.introduction),
             html_url=repository.html_url,
             homepage=repository.homepage,
             language=repository.language,
@@ -271,3 +276,26 @@ def _iso(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_introduction(raw: str | None) -> RepositoryIntroduction | None:
+    """Parse the stored JSON introduction; fall back to a plain-text intro."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            intro = str(data.get("introduction", "")).strip()
+            if intro:
+                return RepositoryIntroduction(
+                    introduction=intro,
+                    usage=str(data.get("usage", "")).strip(),
+                    domains=[
+                        str(d).strip()
+                        for d in data.get("domains", [])
+                        if isinstance(d, str) and d.strip()
+                    ],
+                )
+    except json.JSONDecodeError:
+        pass
+    return RepositoryIntroduction(introduction=raw.strip())

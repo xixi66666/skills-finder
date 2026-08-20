@@ -31,12 +31,18 @@ export interface RepositoryListResponse {
   last_successful_collection_at: string | null
 }
 
+export interface RepositoryIntroduction {
+  introduction: string
+  usage: string
+  domains: string[]
+}
+
 export interface RepositoryDetail {
   id: number
   owner: string
   name: string
   description: string | null
-  introduction: string | null
+  introduction: RepositoryIntroduction | null
   html_url: string
   homepage: string | null
   language: string | null

@@ -47,9 +47,14 @@ def _find_opencode() -> str:
     """Resolve the opencode executable (npm shims are not executable directly)."""
     for name in ("opencode.exe", "opencode.cmd", "opencode"):
         found = shutil.which(name)
-        if found:
+        if found and not found.lower().endswith(".cmd"):
             return found
     shim = shutil.which("opencode.ps1")
+    if shim:
+        candidate = Path(shim).resolve().parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
+        if candidate.exists():
+            return str(candidate)
+    shim = shutil.which("opencode.cmd")
     if shim:
         candidate = Path(shim).resolve().parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
         if candidate.exists():
@@ -62,12 +67,16 @@ def _find_opencode() -> str:
 def _build_prompt(repos: list[RepositoryBrief]) -> str:
     payload = json.dumps([r.to_payload() for r in repos], ensure_ascii=False, indent=2)
     return (
-        "你是开源项目介绍撰写助手。请为下面每个 GitHub 仓库写一段中文简介，"
-        "每段 3-5 句话、120-220 字，说明：这个项目是什么、解决什么问题、主要特点、适合谁使用。"
-        "只能基于提供的信息撰写，不要编造事实，不要输出任何解释或前缀。\n\n"
+        "你是开源项目介绍撰写助手。请为下面每个 GitHub 仓库写一份中文介绍，"
+        "每个仓库包含三个部分：\n"
+        "1. introduction：简单介绍（2-3 句话，说明这个项目是什么、解决什么问题、主要特点）\n"
+        "2. usage：用法（2-3 句话，说明如何使用、如何安装或集成，基于提供的信息，不要编造具体命令）\n"
+        "3. domains：用到的领域（3-5 个名词短语，例如 AI Agent、RAG、自动化、前端开发）\n"
+        "只能基于提供的信息撰写，不要编造事实，不要输出任何解释或前缀。"
+        "不要使用任何工具，不要读取或搜索任何文件，直接回答。\n\n"
         f"仓库信息：\n{payload}\n\n"
-        "输出要求：只输出一个 JSON 数组，数组元素为字符串，顺序与输入完全一致，例如：\n"
-        '["第一个仓库的简介", "第二个仓库的简介"]'
+        "输出要求：只输出一个 JSON 数组，数组元素为对象，顺序与输入完全一致，例如：\n"
+        '[{"introduction": "简单介绍", "usage": "用法", "domains": ["领域一", "领域二"]}]'
     )
 
 
@@ -93,20 +102,44 @@ def _parse_opencode_output(output: str) -> str:
 
 
 def _parse_introductions(text: str, count: int) -> list[str]:
-    """Extract a JSON array of introductions, falling back to a quoted list."""
+    """Extract a JSON array of {introduction, usage, domains} objects."""
     text = text.strip()
     match = re.search(r"\[[\s\S]*\]", text)
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, list) and len(parsed) >= count:
-                return [str(item).strip() for item in parsed[:count]]
-        except json.JSONDecodeError:
-            pass
-    items = re.findall(r'"(?:[^"\\]|\\.)*"', text)
-    if len(items) >= count:
-        return [json.loads(item) for item in items[:count]]
-    raise IntroductionGenerationError("could not parse introductions from model output")
+    if not match:
+        raise IntroductionGenerationError("could not parse introductions from model output")
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        raise IntroductionGenerationError(
+            "could not parse introductions from model output"
+        ) from exc
+    if not isinstance(parsed, list) or len(parsed) < count:
+        raise IntroductionGenerationError("could not parse introductions from model output")
+    items: list[str] = []
+    for entry in parsed[:count]:
+        if isinstance(entry, str):
+            items.append(json.dumps(
+                {"introduction": entry, "usage": "", "domains": []},
+                ensure_ascii=False,
+            ))
+            continue
+        if not isinstance(entry, dict):
+            raise IntroductionGenerationError(
+                "could not parse introductions from model output"
+            )
+        items.append(json.dumps(
+            {
+                "introduction": str(entry.get("introduction", "")).strip(),
+                "usage": str(entry.get("usage", "")).strip(),
+                "domains": [
+                    str(d).strip()
+                    for d in entry.get("domains", [])
+                    if isinstance(d, (str, int)) and str(d).strip()
+                ],
+            },
+            ensure_ascii=False,
+        ))
+    return items
 
 
 def generate_introductions(

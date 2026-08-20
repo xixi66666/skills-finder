@@ -32,12 +32,18 @@ class TrendPoint(BaseModel):
     stars_count: int
 
 
+class RepositoryIntroduction(BaseModel):
+    introduction: str
+    usage: str = ""
+    domains: list[str] = []
+
+
 class RepositoryDetail(BaseModel):
     id: int
     owner: str
     name: str
     description: str | None = None
-    introduction: str | None = None
+    introduction: RepositoryIntroduction | None = None
     html_url: str
     homepage: str | None = None
     language: str | None = None

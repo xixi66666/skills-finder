@@ -6,7 +6,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { fromAxiosError } from '@/api/client'
 import { fetchRepositoryDetail } from '@/api/repositories'
 import StatePanel from '@/components/StatePanel.vue'
-import TrendChart from '@/components/TrendChart.vue'
 import type { RepositoryDetail } from '@/types/api'
 
 const route = useRoute()
@@ -106,16 +105,21 @@ onUnmounted(() => controller?.abort())
       <section v-if="detail.introduction" class="detail-section" data-testid="introduction">
         <h2 class="section-title">项目介绍</h2>
         <div class="introduction-card">
-          <p v-for="paragraph in detail.introduction.split(/\n+/)" :key="paragraph" class="introduction-text">
-            {{ paragraph }}
-          </p>
-        </div>
-      </section>
-
-      <section class="detail-section">
-        <h2 class="section-title">最近 30 天趋势</h2>
-        <div class="chart-card">
-          <TrendChart :points="detail.trend" />
+          <div class="intro-block">
+            <p class="intro-text">{{ detail.introduction.introduction }}</p>
+          </div>
+          <div v-if="detail.introduction.usage" class="intro-block">
+            <h3 class="intro-subtitle">用法</h3>
+            <p class="intro-text">{{ detail.introduction.usage }}</p>
+          </div>
+          <div v-if="detail.introduction.domains.length > 0" class="intro-block">
+            <h3 class="intro-subtitle">应用领域</h3>
+            <div class="domains-list">
+              <span v-for="domain in detail.introduction.domains" :key="domain" class="domain-chip">
+                {{ domain }}
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -288,20 +292,47 @@ onUnmounted(() => controller?.abort())
 .introduction-card {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-3);
+  gap: var(--spacing-4);
   padding: var(--spacing-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background-color: var(--color-bg);
 }
 
-.introduction-text {
+.intro-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.intro-subtitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.intro-text {
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
   color: var(--color-text-primary);
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.domains-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.domain-chip {
+  padding: 2px 10px;
+  border-radius: 100px;
+  background-color: var(--color-canvas);
+  color: var(--color-accent);
+  font-size: 12px;
 }
 
 .rules-list,
