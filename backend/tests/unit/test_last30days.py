@@ -170,6 +170,7 @@ class TestLast30DaysAPI:
         resp = client.post("/api/v1/last30days", json={"query": "test", "limit": 3})
         data = resp.json()
         assert len(data["items"]) == 3
+        assert data["status"] == "working"  # limit truncation is not partial
 
     @respx.mock
     def test_response_normalization(self) -> None:
@@ -193,3 +194,31 @@ class TestLast30DaysAPI:
         assert item["points"] == 42
         assert item["num_comments"] == 7
         assert item["story_text"] == "hello"
+
+    @respx.mock
+    def test_limit_truncation_returns_working_status(self) -> None:
+        """Valid, deduplicated results truncated only by the requested limit
+        should still return status 'working', not 'partial'."""
+        hits = [_make_hit(str(i), title=f"Story {i}", points=100 - i) for i in range(10)]
+        _mock_algolia(hits)
+
+        resp = client.post("/api/v1/last30days", json={"query": "test", "limit": 5})
+        data = resp.json()
+        assert data["status"] == "working"
+        assert len(data["items"]) == 5
+        # Verify items are correctly ranked (top 5 by points)
+        for item in data["items"]:
+            assert item["points"] >= 96  # top 5 have points 100..96
+
+    @respx.mock
+    def test_partial_with_invalid_items(self) -> None:
+        """Items dropped as invalid (missing objectID) should cause 'partial' status."""
+        valid_hit = _make_hit("1", title="Valid", points=50)
+        invalid_hit = {"created_at": "2025-01-01T00:00:00.000Z", "created_at_i": 1735689600, "title": "No ID"}
+        # invalid_hit has no objectID -> will be filtered out by _is_valid
+        _mock_algolia([valid_hit, invalid_hit])
+
+        resp = client.post("/api/v1/last30days", json={"query": "test"})
+        data = resp.json()
+        assert data["status"] == "partial"
+        assert len(data["items"]) == 1

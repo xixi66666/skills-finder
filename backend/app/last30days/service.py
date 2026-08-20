@@ -99,14 +99,17 @@ async def fetch_last30days(
         }
 
     raw_hits = data.get("hits", [])
-    valid = [_normalize(h) for h in raw_hits if _is_valid(h)]
     total_raw = len(raw_hits)
+    valid = [_normalize(h) for h in raw_hits if _is_valid(h)]
+    total_valid = len(valid)
     deduped = _dedupe(valid)
+    total_deduped = len(deduped)
     ranked = _rank(deduped)[:limit]
 
     if not ranked:
         status = "no-results"
-    elif len(ranked) < total_raw:
+    elif total_deduped < total_valid or total_valid < total_raw:
+        # Some items were dropped as invalid or duplicates
         status = "partial"
     else:
         status = "working"
