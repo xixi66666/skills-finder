@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     intro_model: str = "opencode-go/deepseek-v4-flash"
     intro_batch_size: int = 5
     intro_timeout_seconds: int = 300
+    last30days_enabled: bool = True
+    last30days_base_url: str = "https://hn.algolia.com/api/v1"
 
     @model_validator(mode="after")
     def _load_token_from_file(self) -> Settings:
