@@ -160,6 +160,19 @@ async def test_retries_three_times_then_raises(client: GitHubClient) -> None:
 
 
 @respx.mock
+async def test_retries_transport_disconnect_then_wraps_error(client: GitHubClient) -> None:
+    route = respx.get(f"{API}/repos/octocat/flaky").mock(
+        side_effect=httpx.RemoteProtocolError("server disconnected")
+    )
+
+    async with client:
+        with pytest.raises(GitHubRequestError, match="transport failed"):
+            await client.get_repository("octocat/flaky")
+
+    assert len(route.calls) == 3
+
+
+@respx.mock
 async def test_get_rate_limit_parses_headers(client: GitHubClient) -> None:
     respx.get(f"{API}/rate_limit").mock(
         return_value=httpx.Response(

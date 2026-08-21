@@ -43,7 +43,7 @@ class RepositoryStore:
         update_columns = {
             key: stmt.inserted[key]
             for key in values
-            if key not in ("github_id", "full_name", "created_at", "updated_at")
+            if key not in ("created_at", "updated_at")
         }
         stmt = stmt.on_duplicate_key_update(**update_columns)
         await self._session.execute(stmt)

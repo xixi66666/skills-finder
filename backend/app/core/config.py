@@ -32,7 +32,10 @@ class Settings(BaseSettings):
     intro_batch_size: int = 5
     intro_timeout_seconds: int = 300
     last30days_enabled: bool = True
-    last30days_base_url: str = "https://hn.algolia.com/api/v1"
+    last30days_skill_dir: str = ""
+    last30days_python: str = ""
+    last30days_memory_dir: str = ""
+    last30days_timeout_seconds: int = 600
 
     @model_validator(mode="after")
     def _load_token_from_file(self) -> Settings:

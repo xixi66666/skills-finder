@@ -1,121 +1,253 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import asyncio
+import json
+import os
+import shutil
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
-
-import httpx
 
 from app.core.config import settings
 
-HN_ITEM_URL = "https://news.ycombinator.com/item?id="
+
+class Last30DaysNotConfigured(RuntimeError):
+    """Raised when the user-level last30days skill cannot be started."""
 
 
-def _is_valid(item: dict[str, Any]) -> bool:
-    return bool(item.get("objectID") and item.get("created_at_i"))
-
-
-def _normalize(item: dict[str, Any]) -> dict[str, Any]:
-    object_id = str(item["objectID"])
-    external_url = item.get("url") or ""
-    citation_url = external_url if external_url else f"{HN_ITEM_URL}{object_id}"
-    return {
-        "object_id": object_id,
-        "created_at": item.get("created_at", ""),
-        "title": item.get("title") or "",
-        "url": external_url,
-        "author": item.get("author") or "",
-        "points": int(item.get("points") or 0),
-        "num_comments": int(item.get("num_comments") or 0),
-        "story_text": item.get("story_text") or "",
-        "citation_url": citation_url,
-    }
-
-
-def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_oid: dict[str, dict[str, Any]] = {}
-    by_url: dict[str, dict[str, Any]] = {}
-    for item in items:
-        oid = item["object_id"]
-        url = item["url"].strip().rstrip("/").lower() if item["url"] else ""
-        if oid in by_oid:
-            existing = by_oid[oid]
-            if item["points"] > existing["points"]:
-                by_oid[oid] = item
-            continue
-        if url and url in by_url:
-            existing = by_url[url]
-            if item["points"] > existing["points"]:
-                old_oid = existing["object_id"]
-                by_url[url] = item
-                by_oid[oid] = item
-                by_oid.pop(old_oid, None)
-            continue
-        by_oid[oid] = item
-        if url:
-            by_url[url] = item
-    return list(by_oid.values())
-
-
-def _rank(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        items,
-        key=lambda x: (x["points"], x["num_comments"], x["created_at"]),
-        reverse=True,
-    )
-
-
-async def fetch_last30days(
-    query: str = "",
-    limit: int = 50,
-) -> dict[str, Any]:
-    if not settings.last30days_enabled:
-        return {"status": "skipped", "items": [], "fetched_at": _now_iso(), "message": "Module disabled"}
-
-    base_url = settings.last30days_base_url.rstrip("/")
-    thirty_days_ago = int((datetime.now(UTC) - timedelta(days=30)).timestamp())
-    tags = "(story,comment,poll,show_hn,ask_hn)"
-    params: dict[str, Any] = {
-        "numericFilters": f"created_at_i>{thirty_days_ago}",
-        "tags": tags,
-        "hitsPerPage": min(limit * 2, 200),
-    }
-    if query:
-        endpoint = f"{base_url}/search"
-        params["query"] = query
-    else:
-        endpoint = f"{base_url}/search_by_date"
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(endpoint, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "status": "error",
-            "items": [],
-            "fetched_at": _now_iso(),
-            "message": f"Fetch failed: {exc}",
-        }
-
-    raw_hits = data.get("hits", [])
-    total_raw = len(raw_hits)
-    valid = [_normalize(h) for h in raw_hits if _is_valid(h)]
-    total_valid = len(valid)
-    deduped = _dedupe(valid)
-    total_deduped = len(deduped)
-    ranked = _rank(deduped)[:limit]
-
-    if not ranked:
-        status = "no-results"
-    elif total_deduped < total_valid or total_valid < total_raw:
-        # Some items were dropped as invalid or duplicates
-        status = "partial"
-    else:
-        status = "working"
-
-    return {"status": status, "items": ranked, "fetched_at": _now_iso()}
+class Last30DaysExecutionError(RuntimeError):
+    """Raised when the last30days engine fails or returns invalid output."""
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _skill_entrypoint() -> Path:
+    configured = settings.last30days_skill_dir.strip()
+    candidates = []
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.extend(
+        [
+            Path.home() / ".codex" / "skills" / "last30days",
+            Path.home() / ".agents" / "skills" / "last30days",
+            Path.home() / ".claude" / "skills" / "last30days",
+        ]
+    )
+    for candidate in candidates:
+        for relative_path in (Path("scripts") / "last30days.py", Path("last30days.py")):
+            entrypoint = candidate / relative_path
+            if entrypoint.is_file():
+                return entrypoint
+    raise Last30DaysNotConfigured(
+        "未找到用户级 last30days skill，请安装到 ~/.codex/skills/last30days。"
+    )
+
+
+async def _supports_python312(executable: str) -> bool:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            "-c",
+            "import sys; raise SystemExit(sys.version_info < (3, 12))",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return await asyncio.wait_for(process.wait(), timeout=5) == 0
+    except (OSError, TimeoutError):
+        return False
+
+
+async def _python_executable() -> str:
+    configured = settings.last30days_python.strip()
+    candidates: list[str] = []
+    if configured:
+        candidates.append(str(Path(configured).expanduser()))
+    if sys.version_info >= (3, 12):
+        candidates.append(sys.executable)
+    for command in ("python3.14", "python3.13", "python3.12", "python3", "python"):
+        resolved = shutil.which(command)
+        if resolved:
+            candidates.append(resolved)
+    runtime_root = Path.home() / ".cache" / "codex-runtimes"
+    if runtime_root.is_dir():
+        candidates.extend(
+            str(path)
+            for path in sorted(runtime_root.glob("*/dependencies/python/python.exe"), reverse=True)
+        )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if await _supports_python312(candidate):
+            return candidate
+    raise Last30DaysNotConfigured(
+        "last30days 需要 Python 3.12 或更高版本；可通过 LAST30DAYS_PYTHON 指定解释器。"
+    )
+
+
+def _engine_environment() -> dict[str, str]:
+    allowed_exact = {
+        "COMSPEC",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "PATH",
+        "PATHEXT",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    }
+    allowed_credentials = {
+        "APIFY_API_TOKEN",
+        "BRAVE_API_KEY",
+        "EXA_API_KEY",
+        "GITHUB_TOKEN",
+        "OPENAI_API_KEY",
+        "PERPLEXITY_API_KEY",
+        "SERPER_API_KEY",
+        "TAVILY_API_KEY",
+        "X_BEARER_TOKEN",
+        "YOUTUBE_API_KEY",
+    }
+    environment: dict[str, str] = {}
+    for key, value in os.environ.items():
+        upper = key.upper()
+        if upper in allowed_exact or upper in allowed_credentials or upper.startswith("LAST30DAYS_"):
+            environment[key] = value
+    environment["PYTHONIOENCODING"] = "utf-8"
+    return environment
+
+
+async def _run_last30days(arguments: list[str]) -> dict[str, Any]:
+    entrypoint = _skill_entrypoint()
+    python = await _python_executable()
+    process = await asyncio.create_subprocess_exec(
+        python,
+        str(entrypoint),
+        *arguments,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_engine_environment(),
+    )
+    try:
+        stdout, _stderr = await asyncio.wait_for(
+            process.communicate(), timeout=settings.last30days_timeout_seconds
+        )
+    except TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise Last30DaysExecutionError("last30days 研究超时，请缩小主题后重试。") from exc
+    if process.returncode != 0:
+        raise Last30DaysExecutionError("last30days 引擎执行失败，请运行诊断后重试。")
+    try:
+        payload = json.loads(stdout.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise Last30DaysExecutionError("last30days 引擎返回了无法解析的结果。") from exc
+    if not isinstance(payload, dict):
+        raise Last30DaysExecutionError("last30days 引擎返回格式不正确。")
+    return payload
+
+
+def _empty_response(status: str, message: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "query": "",
+        "items": [],
+        "clusters": [],
+        "sources": [],
+        "source_status": {},
+        "fetched_at": _now_iso(),
+        "message": message,
+    }
+
+
+def _source_state(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("status") or value.get("state") or "unknown")
+    return "unknown"
+
+
+async def fetch_last30days(query: str, limit: int = 50) -> dict[str, Any]:
+    if not settings.last30days_enabled:
+        return _empty_response("skipped", "last30days 模块已禁用。")
+
+    clean_query = query.strip()
+    arguments = [
+        clean_query,
+        "--emit=json",
+        "--json-profile=agent",
+        "--auto-resolve",
+        "--save-suffix=skill-finder",
+    ]
+    if settings.last30days_memory_dir.strip():
+        arguments.append(f"--save-dir={Path(settings.last30days_memory_dir).expanduser()}")
+    try:
+        payload = await _run_last30days(arguments)
+    except Last30DaysNotConfigured as exc:
+        response = _empty_response("unconfigured", str(exc))
+        response["query"] = clean_query
+        return response
+    except Last30DaysExecutionError as exc:
+        response = _empty_response("error", str(exc))
+        response["query"] = clean_query
+        return response
+
+    raw_status = payload.get("source_status")
+    source_status = raw_status if isinstance(raw_status, dict) else {}
+    sources = sorted(str(source) for source in source_status)
+    raw_items = payload.get("results")
+    items = raw_items[:limit] if isinstance(raw_items, list) else []
+    raw_clusters = payload.get("clusters")
+    clusters = raw_clusters if isinstance(raw_clusters, list) else []
+    degraded = [
+        source
+        for source, value in source_status.items()
+        if _source_state(value) not in {"ok", "working", "no-results", "unavailable", "skipped"}
+    ]
+    if items:
+        status = "partial" if degraded else "working"
+    else:
+        status = "error" if degraded else "no-results"
+    message = f"部分来源不可用：{', '.join(degraded)}" if degraded else None
+    return {
+        "status": status,
+        "query": str(payload.get("query") or clean_query),
+        "items": items,
+        "clusters": clusters,
+        "sources": sources,
+        "source_status": source_status,
+        "fetched_at": str(payload.get("generated_at") or _now_iso()),
+        "message": message,
+    }
+
+
+async def diagnose_last30days() -> dict[str, Any]:
+    if not settings.last30days_enabled:
+        return {"status": "skipped", "sources": [], "message": "last30days 模块已禁用。"}
+    try:
+        payload = await _run_last30days(["--diagnose"])
+    except Last30DaysNotConfigured as exc:
+        return {"status": "unconfigured", "sources": [], "message": str(exc)}
+    except Last30DaysExecutionError as exc:
+        return {"status": "error", "sources": [], "message": str(exc)}
+    sources = payload.get("available_sources")
+    return {
+        "status": "working" if payload.get("safe", True) else "error",
+        "sources": [str(source) for source in sources] if isinstance(sources, list) else [],
+        "message": None if payload.get("safe", True) else "last30days 诊断未通过。",
+    }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Moon, Search, Sun } from 'lucide-vue-next'
+import { Moon, Newspaper, Search, Sun } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -39,6 +39,12 @@ function onSearchInput() {
 <template>
   <header class="app-header">
     <RouterLink to="/" class="brand">Skill Finder</RouterLink>
+    <nav class="primary-nav" aria-label="主导航">
+      <RouterLink to="/last30days" class="nav-link">
+        <Newspaper :size="16" aria-hidden="true" />
+        <span>近 30 天研究</span>
+      </RouterLink>
+    </nav>
     <div class="search-box">
       <Search :size="16" class="search-icon" aria-hidden="true" />
       <input
@@ -77,9 +83,39 @@ function onSearchInput() {
 }
 
 .brand {
+  flex: 0 0 auto;
   color: var(--color-header-text);
   font-weight: 600;
   text-decoration: none;
+}
+
+.primary-nav {
+  display: flex;
+  align-items: center;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: 36px;
+  padding: 0 var(--spacing-3);
+  border-radius: var(--radius-button);
+  color: var(--color-header-text);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.nav-link:hover,
+.nav-link.router-link-active {
+  background-color: var(--color-canvas-subtle);
+}
+
+.nav-link:focus-visible,
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
 }
 
 .search-box {
@@ -130,5 +166,30 @@ function onSearchInput() {
 
 .theme-toggle:hover {
   background-color: var(--color-canvas-subtle);
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 56px;
+    padding-top: var(--spacing-2);
+    padding-bottom: var(--spacing-2);
+  }
+
+  .search-box {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .nav-link,
+  .theme-toggle {
+    min-height: 44px;
+  }
+
+  .theme-toggle {
+    width: 44px;
+  }
 }
 </style>

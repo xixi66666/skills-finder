@@ -1,77 +1,41 @@
 # Last 30 Days Module
 
-Fetches and ranks the latest Hacker News stories from the past 30 days using the public keyless Algolia HN API.
+This module adapts the user-level `last30days` skill to Skill Finder. It runs the installed engine as a subprocess and returns its agent JSON profile instead of maintaining a separate Hacker News-only implementation.
 
-## Endpoint
+## API
 
-```
-POST /api/v1/last30days
-```
-
-### Request Body (JSON)
-
-| Field   | Type   | Default | Description                     |
-|---------|--------|---------|----------------------------------|
-| query   | string | null    | Optional search query            |
-| limit   | int    | 50      | Max items to return (1–100)      |
-
-### Example
-
-```bash
-curl -X POST http://localhost:8000/api/v1/last30days \
-  -H 'Content-Type: application/json' \
-  -d '{"query": "python", "limit": 20}'
-```
-
-### Response
+- `GET /api/v1/last30days/status` checks the installed skill/runtime and lists currently available sources.
+- `POST /api/v1/last30days` runs research for a required topic.
 
 ```json
 {
-  "status": "working",
-  "items": [
-    {
-      "object_id": "12345",
-      "created_at": "2026-08-19T10:00:00.000Z",
-      "title": "Example Story",
-      "url": "https://example.com/article",
-      "author": "user1",
-      "points": 150,
-      "num_comments": 42,
-      "story_text": "",
-      "citation_url": "https://example.com/article"
-    }
-  ],
-  "fetched_at": "2026-08-20T01:00:00+00:00"
+  "query": "OpenAI Codex",
+  "limit": 20
 }
 ```
 
-## Source Status Values
+The response contains `clusters`, individual `items`, `sources`, and per-source status. The UI is available from the primary navigation as **近 30 天研究**.
 
-| Status         | Meaning                                                    |
-|----------------|------------------------------------------------------------|
-| `working`      | Success with at least one result                           |
-| `no-results`   | Success but zero results after normalization               |
-| `partial`      | Some items were dropped (invalid/duplicate); results exist |
-| `error`        | An exception occurred during fetch or processing           |
-| `skipped`      | Module disabled via `LAST30DAYS_ENABLED=false`             |
-| `unconfigured` | Critical config missing (cannot occur with defaults)       |
+## Runtime discovery
 
-## Configuration
+By default the adapter searches these user-level installations:
 
-Set via environment variables or `.env` file (no secrets required):
+1. `~/.codex/skills/last30days`
+2. `~/.agents/skills/last30days`
+3. `~/.claude/skills/last30days`
 
-| Variable              | Default                                  | Description           |
-|-----------------------|------------------------------------------|------------------------|
-| `LAST30DAYS_ENABLED`  | `true`                                   | Enable/disable module  |
-| `LAST30DAYS_BASE_URL` | `https://hn.algolia.com/api/v1`         | Algolia HN API base    |
+It also discovers Python 3.12+ from the current interpreter, `PATH`, or a bundled Codex runtime. Override discovery only when necessary:
 
-## Frontend
+| Variable | Purpose |
+| --- | --- |
+| `LAST30DAYS_ENABLED` | Enable or disable the module |
+| `LAST30DAYS_SKILL_DIR` | Explicit installed skill directory |
+| `LAST30DAYS_PYTHON` | Explicit Python 3.12+ executable |
+| `LAST30DAYS_MEMORY_DIR` | Optional research artifact directory |
+| `LAST30DAYS_TIMEOUT_SECONDS` | Subprocess timeout, default 600 seconds |
 
-Visit `/last30days` in the app to use the interactive query page.
+The subprocess receives only basic operating-system variables, `LAST30DAYS_*` configuration, and credential variables understood by the skill. Skill Finder database and admin configuration are not forwarded.
 
-## Design Notes
+## Data access
 
-- Items are deduplicated by `objectID` and normalized external URL (preferring higher-point version)
-- Ranked by: points (desc) → num_comments (desc) → created_at (desc)
-- Citation URL falls back to `https://news.ycombinator.com/item?id=<objectID>` when no external URL
-- No secrets, cookies, tokens, or local data are read or sent
+Submitting research sends the topic to the external sources enabled by the user's `last30days` installation. The status endpoint exposes those sources before a run. Source availability depends on the local skill configuration and optional credentials.

@@ -138,9 +138,16 @@ class CollectionService:
 
     async def _refresh_available(self, result: CollectionResult) -> None:
         available = await self.repository_store.list_available()
+        discovered_ids = {
+            repository.github_id
+            for repository in self.discovered
+            if self._eligible(repository)
+        }
         unavailable: list[int] = []
         intro_pending: list[Repository] = []
         for repository in available:
+            if repository.github_id in discovered_ids:
+                continue
             try:
                 repo = await self.github_client.get_repository(repository.full_name)
             except GitHubRequestError:

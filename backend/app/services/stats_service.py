@@ -45,7 +45,7 @@ class StatsService:
 
         success_row = await session.execute(
             select(CollectionRun)
-            .where(CollectionRun.status == "SUCCESS")
+            .where(CollectionRun.status.in_(("SUCCESS", "PARTIAL")))
             .order_by(CollectionRun.finished_at.desc())
             .limit(1)
         )

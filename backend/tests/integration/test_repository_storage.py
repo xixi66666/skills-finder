@@ -80,6 +80,23 @@ async def test_repository_store_upsert_and_available(session: AsyncSession) -> N
     assert available_after == []
 
 
+async def test_repository_store_replaces_recreated_repository_identity(
+    session: AsyncSession,
+) -> None:
+    store = RepositoryStore(session)
+    classification = Classification(categories=("AGENT",), matched_rules=("topic:ai-agent",))
+
+    original = await store.upsert(make_repo(10, "owner/reused-name"), classification)
+    recreated = await store.upsert(
+        make_repo(11, "owner/reused-name", stars=300), classification
+    )
+
+    assert recreated.id == original.id
+    assert recreated.github_id == 11
+    assert recreated.stars_count == 300
+    assert [repository.github_id for repository in await store.list_available()] == [11]
+
+
 async def test_snapshot_store_upsert_conflicts(session: AsyncSession) -> None:
     repo_store = RepositoryStore(session)
     classification = Classification(categories=("MCP",), matched_rules=("topic:mcp-server",))

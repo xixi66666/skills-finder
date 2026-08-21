@@ -1,96 +1,107 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import Last30DaysView from '@/views/Last30DaysView.vue'
 
 vi.mock('@/api/last30days', () => ({
+  fetchLast30daysStatus: vi.fn(),
   postLast30days: vi.fn(),
 }))
 
-import { postLast30days } from '@/api/last30days'
+import { fetchLast30daysStatus, postLast30days } from '@/api/last30days'
+
+const mockedStatus = vi.mocked(fetchLast30daysStatus)
 const mockedPost = vi.mocked(postLast30days)
 
 describe('Last30DaysView', () => {
   beforeEach(() => {
+    mockedStatus.mockReset()
     mockedPost.mockReset()
+    mockedStatus.mockResolvedValue({
+      status: 'working',
+      sources: ['reddit', 'hackernews', 'github'],
+    })
   })
 
-  it('renders form with input and button', () => {
+  it('renders the research form and available sources', async () => {
     const wrapper = mount(Last30DaysView)
-    expect(wrapper.find('input').exists()).toBe(true)
-    expect(wrapper.find('button').exists()).toBe(true)
-    expect(wrapper.find('h1').text()).toContain('Last 30 Days')
+    await flushPromises()
+
+    expect(wrapper.get('h1').text()).toBe('近 30 天研究')
+    expect(wrapper.get('input').attributes('required')).toBeDefined()
+    expect(wrapper.text()).toContain('Reddit')
+    expect(wrapper.text()).toContain('Hacker News')
   })
 
-  it('displays working status with results', async () => {
+  it('displays clusters and multisource results', async () => {
     mockedPost.mockResolvedValueOnce({
       status: 'working',
-      items: [
-        { object_id: '1', created_at: '2025-08-01', title: 'Test Story', url: 'https://example.com', author: 'user1', points: 100, num_comments: 20, story_text: '', citation_url: 'https://example.com' },
+      query: 'OpenAI',
+      sources: ['reddit', 'github'],
+      source_status: { reddit: 'working', github: 'working' },
+      clusters: [
+        {
+          title: 'Developer reactions',
+          summary: 'Developers discussed the latest changes.',
+          sources: ['reddit', 'github'],
+          engagement_total: 320,
+        },
       ],
-      fetched_at: '2025-08-20T00:00:00Z',
+      items: [
+        {
+          candidate_id: 'reddit-1',
+          title: 'What developers are saying',
+          source: 'reddit',
+          url: 'https://www.reddit.com/r/example/1',
+          published_at: '2026-08-20T00:00:00Z',
+          summary: 'A grounded community summary.',
+          engagement: { score: 210, comments: 42 },
+          relevance_score: 0.95,
+          cluster: 0,
+        },
+      ],
+      fetched_at: '2026-08-21T00:00:00Z',
     })
     const wrapper = mount(Last30DaysView)
-    await wrapper.find('form').trigger('submit')
-    await vi.waitFor(() => {
-      expect(wrapper.find('.source-status').text()).toContain('working')
-    })
-    expect(wrapper.findAll('.result-item')).toHaveLength(1)
-    expect(wrapper.find('.result-title').text()).toBe('Test Story')
+    await wrapper.get('input').setValue('OpenAI')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockedPost).toHaveBeenCalledWith('OpenAI')
+    expect(wrapper.text()).toContain('Developer reactions')
+    expect(wrapper.text()).toContain('What developers are saying')
+    expect(wrapper.text()).toContain('相关度 95%')
   })
 
-  it('displays no-results status', async () => {
+  it('shows an empty state when no recent signals are found', async () => {
     mockedPost.mockResolvedValueOnce({
       status: 'no-results',
+      query: 'unlikely topic',
+      sources: ['reddit'],
+      source_status: { reddit: 'no-results' },
+      clusters: [],
       items: [],
-      fetched_at: '2025-08-20T00:00:00Z',
+      fetched_at: '2026-08-21T00:00:00Z',
     })
     const wrapper = mount(Last30DaysView)
-    await wrapper.find('form').trigger('submit')
-    await vi.waitFor(() => {
-      expect(wrapper.find('.source-status').text()).toContain('no-results')
-    })
-    expect(wrapper.findAll('.result-item')).toHaveLength(0)
+    await wrapper.get('input').setValue('unlikely topic')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('最近 30 天没有找到相关结果')
   })
 
-  it('displays error status on API failure', async () => {
-    mockedPost.mockRejectedValueOnce(new Error('Network error'))
-    const wrapper = mount(Last30DaysView)
-    await wrapper.find('form').trigger('submit')
-    await vi.waitFor(() => {
-      expect(wrapper.find('.source-status').text()).toContain('error')
+  it('shows engine setup failures without hiding the form', async () => {
+    mockedStatus.mockResolvedValueOnce({
+      status: 'unconfigured',
+      sources: [],
+      message: '未找到用户级 last30days skill。',
     })
-    expect(wrapper.find('.error-message').text()).toContain('Network error')
-  })
+    const wrapper = mount(Last30DaysView)
+    await flushPromises()
 
-  it('displays skipped status', async () => {
-    mockedPost.mockResolvedValueOnce({
-      status: 'skipped',
-      items: [],
-      fetched_at: '2025-08-20T00:00:00Z',
-      message: 'Module disabled',
-    })
-    const wrapper = mount(Last30DaysView)
-    await wrapper.find('form').trigger('submit')
-    await vi.waitFor(() => {
-      expect(wrapper.find('.source-status').text()).toContain('skipped')
-    })
-  })
-
-  it('displays partial status with message', async () => {
-    mockedPost.mockResolvedValueOnce({
-      status: 'partial',
-      items: [
-        { object_id: '1', created_at: '2025-08-01', title: 'A', url: '', author: 'u', points: 10, num_comments: 0, story_text: '', citation_url: 'https://news.ycombinator.com/item?id=1' },
-      ],
-      fetched_at: '2025-08-20T00:00:00Z',
-      message: 'Some items dropped',
-    })
-    const wrapper = mount(Last30DaysView)
-    await wrapper.find('form').trigger('submit')
-    await vi.waitFor(() => {
-      expect(wrapper.find('.source-status').text()).toContain('partial')
-      expect(wrapper.find('.source-status').text()).toContain('Some items dropped')
-    })
-    expect(wrapper.findAll('.result-item')).toHaveLength(1)
+    expect(wrapper.text()).toContain('需要配置')
+    expect(wrapper.text()).toContain('未找到用户级 last30days skill。')
+    expect(wrapper.get('form').element).toBeInstanceOf(HTMLFormElement)
   })
 })

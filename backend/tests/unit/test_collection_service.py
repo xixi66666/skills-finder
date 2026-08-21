@@ -202,6 +202,21 @@ async def test_refresh_marks_unavailable_and_partial(session: FakeSession) -> No
     assert result.failed_count == 1
 
 
+async def test_refresh_skips_repositories_already_discovered(session: FakeSession) -> None:
+    repository = make_repo(10, "a/current")
+    github = FakeGitHubClient(
+        search_results={"topic:ai-agent": [repository]},
+        failures={"a/current": GitHubRequestError("must not refresh twice")},
+    )
+    service = make_service(session, github, available=[repository])
+
+    result = await service.run()
+
+    assert result.status == "SUCCESS"
+    assert result.updated_count == 1
+    assert result.failed_count == 0
+
+
 async def test_auth_failure_marks_failed_and_reraises(session: FakeSession) -> None:
     github = FakeGitHubClient(failures={"a/any": GitHubAuthError("bad token")})
     service = make_service(

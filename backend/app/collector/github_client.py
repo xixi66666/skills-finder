@@ -168,16 +168,25 @@ class GitHubClient:
         allowed = status_codes or [200]
         last_exc: GitHubRequestError | None = None
         for attempt in range(len(self._retry_delays)):
-            response = await self._client.request(
-                method,
-                url,
-                params=params,
-                headers={
-                    "Accept": ACCEPT_HEADER,
-                    "Authorization": f"Bearer {self._token}",
-                    "X-GitHub-Api-Version": API_VERSION,
-                },
-            )
+            try:
+                response = await self._client.request(
+                    method,
+                    url,
+                    params=params,
+                    headers={
+                        "Accept": ACCEPT_HEADER,
+                        "Authorization": f"Bearer {self._token}",
+                        "X-GitHub-Api-Version": API_VERSION,
+                    },
+                )
+            except httpx.TransportError as exc:
+                last_exc = GitHubRequestError(
+                    f"GitHub transport failed: {type(exc).__name__}"
+                )
+                if attempt < len(self._retry_delays) - 1:
+                    await asyncio.sleep(self._retry_delays[attempt])
+                    continue
+                raise last_exc from exc
             if response.status_code in allowed:
                 return response
             if _is_rate_limited(response):

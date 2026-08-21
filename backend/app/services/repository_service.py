@@ -262,7 +262,7 @@ class RepositoryService:
     async def _last_successful_collection(self, session: AsyncSession) -> str | None:
         row = await session.execute(
             select(CollectionRun)
-            .where(CollectionRun.status == "SUCCESS")
+            .where(CollectionRun.status.in_(("SUCCESS", "PARTIAL")))
             .order_by(CollectionRun.started_at.desc())
             .limit(1)
         )
