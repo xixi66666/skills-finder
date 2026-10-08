@@ -25,10 +25,21 @@ class Settings(BaseSettings):
     business_timezone: str = "Asia/Shanghai"
     collection_cron: str = "0 2 * * *"
     scheduler_enabled: bool = False
-    min_stars: int = 100
-    cors_origins: str = "http://localhost:5173"
+    trending_top_n: int = 10
+    trending_ai_keywords: str = (
+        "ai,agent,agents,llm,gpt,claude,anthropic,openai,gemini,deepseek,copilot,"
+        "mcp,model context protocol,skill,skills,plugin,plugins,rag,prompt,"
+        "generative,genai,machine learning,neural,embedding,transformer,"
+        "chatbot,multimodal,computer vision,speech"
+    )
+    trending_proxy: str = ""
+    refresh_cooldown_minutes: int = 30
+    cors_origins: str = "http://localhost:10002"
     intro_enabled: bool = False
-    intro_model: str = "opencode-go/deepseek-v4-flash"
+    intro_model: str = "opencode-go/ox-alpha-free,opencode-go/deepseek-v4-flash"
+    intro_api_base: str = "https://opencode.ai/zen/go/v1"
+    opencode_api_key: str = ""
+    intro_concurrency: int = 8
     intro_batch_size: int = 5
     intro_timeout_seconds: int = 300
     last30days_enabled: bool = True

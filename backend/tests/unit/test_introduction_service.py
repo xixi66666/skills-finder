@@ -1,19 +1,27 @@
 import json
 
+import httpx
 import pytest
 
 from app.services.introduction_service import (
     IntroductionGenerationError,
     RepositoryBrief,
     _build_prompt,
-    _find_opencode,
+    _model_chain,
     _parse_introductions,
-    _parse_opencode_output,
+    _resolve_api_key,
     generate_introductions,
+    generate_introductions_resilient,
 )
 
+GATEWAY = "https://opencode.ai/zen/go/v1/chat/completions"
 
-def make_brief(name: str = "demo-skill", topics: list[str] | None = None) -> RepositoryBrief:
+
+def make_brief(
+    name: str = "demo-skill",
+    topics: list[str] | None = None,
+    readme: str | None = None,
+) -> RepositoryBrief:
     return RepositoryBrief(
         owner="octocat",
         name=name,
@@ -23,44 +31,79 @@ def make_brief(name: str = "demo-skill", topics: list[str] | None = None) -> Rep
         stars_count=1234,
         homepage=None,
         html_url="https://github.com/octocat/demo-skill",
+        readme=readme,
     )
 
 
+def rich_payload(**overrides: object) -> dict:
+    payload = {
+        "introduction": "简介",
+        "highlights": [],
+        "requirements": [],
+        "usage": "",
+        "audience": "",
+        "domains": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _content_payload(text: str) -> dict:
+    return {
+        "choices": [{"message": {"role": "assistant", "content": text}}],
+        "usage": {"total_tokens": 100},
+    }
+
+
 def test_build_prompt_contains_repo_info() -> None:
-    prompt = _build_prompt([make_brief()])
+    prompt = _build_prompt([make_brief(readme="# Demo\nRun `npm install`.")])
     assert "demo-skill" in prompt
     assert "ai-skills" in prompt
     assert "octocat" in prompt
     assert "JSON" in prompt
+    assert "highlights" in prompt
+    assert "requirements" in prompt
     assert "usage" in prompt
+    assert "audience" in prompt
     assert "domains" in prompt
+    assert "npm install" in prompt
 
 
-def test_parse_opencode_output_joins_text_events() -> None:
-    lines = [
-        '{"type":"step_start","part":{"type":"step-start"}}',
-        '{"type":"text","part":{"type":"text","text":"项目简介"}}',
-        '{"type":"text","part":{"type":"text","text":"的第一部分。"}}',
-        '{"type":"step_finish","part":{"type":"step-finish"}}',
-        '{"type":"error","error":{}}',
-    ]
-    assert _parse_opencode_output("\n".join(lines)) == "项目简介的第一部分。"
+def test_build_prompt_without_readme_omits_section() -> None:
+    prompt = _build_prompt([make_brief()])
+    assert "README 原文：" not in prompt
+    assert "的 README" not in prompt
 
 
 def test_parse_introductions_from_json_array() -> None:
     text = (
-        '[{"introduction": "第一个仓库的简介。", "usage": "直接运行", '
+        '[{"introduction": "第一个仓库的简介。", "highlights": ["亮点一"], '
+        '"requirements": ["Node.js 22+"], "usage": "直接运行", "audience": "开发者", '
         '"domains": ["AI Agent"]}, '
         '{"introduction": "第二个仓库的简介。", "usage": "pip 安装", '
         '"domains": ["自动化", "RAG"]}]'
     )
     assert _parse_introductions(text, 2) == [
         json.dumps(
-            {"introduction": "第一个仓库的简介。", "usage": "直接运行", "domains": ["AI Agent"]},
+            {
+                "introduction": "第一个仓库的简介。",
+                "highlights": ["亮点一"],
+                "requirements": ["Node.js 22+"],
+                "usage": "直接运行",
+                "audience": "开发者",
+                "domains": ["AI Agent"],
+            },
             ensure_ascii=False,
         ),
         json.dumps(
-            {"introduction": "第二个仓库的简介。", "usage": "pip 安装", "domains": ["自动化", "RAG"]},
+            {
+                "introduction": "第二个仓库的简介。",
+                "highlights": [],
+                "requirements": [],
+                "usage": "pip 安装",
+                "audience": "",
+                "domains": ["自动化", "RAG"],
+            },
             ensure_ascii=False,
         ),
     ]
@@ -73,22 +116,16 @@ def test_parse_introductions_with_surrounding_text() -> None:
         '{"introduction": "简介乙", "usage": "用法乙", "domains": ["领域乙"]}]\n```'
     )
     assert _parse_introductions(text, 2) == [
-        json.dumps(
-            {"introduction": "简介甲", "usage": "用法甲", "domains": ["领域甲"]},
-            ensure_ascii=False,
-        ),
-        json.dumps(
-            {"introduction": "简介乙", "usage": "用法乙", "domains": ["领域乙"]},
-            ensure_ascii=False,
-        ),
+        json.dumps(rich_payload(introduction="简介甲", usage="用法甲", domains=["领域甲"]), ensure_ascii=False),
+        json.dumps(rich_payload(introduction="简介乙", usage="用法乙", domains=["领域乙"]), ensure_ascii=False),
     ]
 
 
 def test_parse_introductions_accepts_plain_strings() -> None:
     text = '["简介一", "简介二"]'
     assert _parse_introductions(text, 2) == [
-        json.dumps({"introduction": "简介一", "usage": "", "domains": []}, ensure_ascii=False),
-        json.dumps({"introduction": "简介二", "usage": "", "domains": []}, ensure_ascii=False),
+        json.dumps(rich_payload(introduction="简介一"), ensure_ascii=False),
+        json.dumps(rich_payload(introduction="简介二"), ensure_ascii=False),
     ]
 
 
@@ -97,86 +134,186 @@ def test_parse_introductions_raises_on_garbage() -> None:
         _parse_introductions("抱歉，我无法完成这个请求。", 1)
 
 
-def test_generate_introductions_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[list[str]] = []
+def test_model_chain_strips_provider_prefix_and_dedupes() -> None:
+    assert _model_chain(" opencode-go/ox-alpha-free, opencode-go/deepseek-v4-flash, ox-alpha-free ") == [
+        "ox-alpha-free",
+        "deepseek-v4-flash",
+    ]
+    assert _model_chain("") == []
 
-    class FakeResult:
-        returncode = 0
-        stdout = (
-            '{"type":"text","part":{"type":"text","text":"[{\\"introduction\\":\\"简介一\\",'
-            '\\"usage\\":\\"用法一\\",\\"domains\\":[\\"领域一\\"]}]"}}'
-        )
-        stderr = ""
 
-    import subprocess
-
-    def fake_run(args, **kwargs):
-        captured.append(args)
-        return FakeResult()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+def test_resolve_api_key_prefers_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "app.services.introduction_service._find_opencode", lambda: "opencode"
+        "app.services.introduction_service.settings.opencode_api_key", "sk-test"
     )
-    texts = generate_introductions([make_brief("a")], model="m")
+    assert _resolve_api_key() == "sk-test"
+
+
+def test_resolve_api_key_raises_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        "app.services.introduction_service.settings.opencode_api_key", ""
+    )
+    monkeypatch.setattr(
+        "app.services.introduction_service.Path.home", lambda: tmp_path
+    )
+    with pytest.raises(IntroductionGenerationError):
+        _resolve_api_key()
+
+
+@pytest.mark.asyncio
+async def test_generate_uses_first_model_and_sends_auth(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    monkeypatch.setattr(
+        "app.services.introduction_service.settings.opencode_api_key", "sk-test"
+    )
+    route = respx_mock.post(GATEWAY).mock(
+        return_value=httpx.Response(
+            200,
+            json=_content_payload(
+                '[{"introduction": "简介一", "usage": "用法一", "domains": ["领域一"]}]'
+            ),
+        )
+    )
+    texts = await generate_introductions([make_brief("a")], model="opencode-go/ox-alpha-free")
     assert texts == [
         json.dumps(
-            {"introduction": "简介一", "usage": "用法一", "domains": ["领域一"]},
+            rich_payload(introduction="简介一", usage="用法一", domains=["领域一"]),
             ensure_ascii=False,
         )
     ]
-    assert "--format" in captured[0]
-    assert "json" in captured[0]
-    assert "-m" in captured[0]
-    assert "m" in captured[0]
+    assert route.called
+    request = route.calls.last.request
+    assert request.headers["authorization"] == "Bearer sk-test"
+    assert request.headers["x-opencode-session"]
+    body = json.loads(request.content)
+    assert body["model"] == "ox-alpha-free"
 
 
-def test_generate_introductions_raises_on_nonzero_exit(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.asyncio
+async def test_generate_falls_back_after_upstream_errors(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
 ) -> None:
-    import subprocess
-
-    class FakeResult:
-        returncode = 1
-        stdout = ""
-        stderr = "boom"
-
-    monkeypatch.setattr(subprocess, "run", lambda args, **kwargs: FakeResult())
     monkeypatch.setattr(
-        "app.services.introduction_service._find_opencode", lambda: "opencode"
+        "app.services.introduction_service.settings.opencode_api_key", "sk-test"
     )
-    with pytest.raises(IntroductionGenerationError):
-        generate_introductions([make_brief()], model="m")
+    monkeypatch.setattr("asyncio.sleep", _noop_sleep)
 
-
-def test_find_opencode_returns_exe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "app.services.introduction_service.shutil.which",
-        lambda name: r"C:\opencode.exe" if name == "opencode.exe" else None,
-    )
-    assert _find_opencode() == r"C:\opencode.exe"
-
-
-def test_find_opencode_skips_cmd_shim(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_which(name: str) -> str | None:
-        if name == "opencode.cmd":
-            return r"C:\npm\opencode.cmd"
-        if name == "opencode.ps1":
-            return r"C:\npm\opencode.ps1"
+    async def _sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(
-        "app.services.introduction_service.shutil.which", fake_which
+        "app.services.introduction_service.asyncio.sleep", _sleep
     )
-    monkeypatch.setattr(
-        "app.services.introduction_service.Path.exists", lambda self: True
+    ok = _content_payload(
+        '[{"introduction": "兜底简介", "usage": "", "domains": []}]'
     )
-    assert _find_opencode() == r"C:\npm\node_modules\opencode-ai\bin\opencode.exe"
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["model"] == "ox-alpha-free":
+            return httpx.Response(503, json={"error": "unavailable"})
+        return httpx.Response(200, json=ok)
+
+    respx_mock.post(GATEWAY).mock(side_effect=_handler)
+    texts = await generate_introductions(
+        [make_brief("a")], model="opencode-go/ox-alpha-free,opencode-go/deepseek-v4-flash"
+    )
+    assert texts[0] == json.dumps(
+        rich_payload(introduction="兜底简介"),
+        ensure_ascii=False,
+    )
 
 
-def test_find_opencode_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_generate_raises_when_all_models_fail(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
     monkeypatch.setattr(
-        "app.services.introduction_service.shutil.which", lambda name: None
+        "app.services.introduction_service.settings.opencode_api_key", "sk-test"
+    )
+
+    async def _sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "app.services.introduction_service.asyncio.sleep", _sleep
+    )
+    respx_mock.post(GATEWAY).mock(
+        return_value=httpx.Response(503, json={"error": "unavailable"})
     )
     with pytest.raises(IntroductionGenerationError):
-        _find_opencode()
+        await generate_introductions([make_brief()], model="m1,m2")
+
+
+async def _noop_sleep(seconds: float) -> None:
+    return None
+
+
+@pytest.mark.asyncio
+async def test_resilient_returns_batch_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.introduction_service as intro_module
+
+    async def fake(briefs, **kwargs):
+        return [f"intro:{brief.name}" for brief in briefs]
+
+    monkeypatch.setattr(intro_module, "generate_introductions", fake)
+    result = await generate_introductions_resilient([make_brief("a"), make_brief("b")])
+    assert result == ["intro:a", "intro:b"]
+
+
+@pytest.mark.asyncio
+async def test_resilient_splits_batch_and_skips_risky_repo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.introduction_service as intro_module
+
+    calls: list[list[str]] = []
+
+    async def fake(briefs, **kwargs):
+        names = [brief.name for brief in briefs]
+        calls.append(names)
+        if len(briefs) > 1:
+            raise IntroductionGenerationError("batch rejected")
+        if names == ["bad"]:
+            raise IntroductionGenerationError("Content Exists Risk")
+        return [f"intro:{names[0]}"]
+
+    monkeypatch.setattr(intro_module, "generate_introductions", fake)
+
+    briefs = [
+        make_brief("a"),
+        make_brief("bad", readme="# risky readme"),
+        make_brief("c"),
+    ]
+    result = await generate_introductions_resilient(briefs)
+
+    assert result == ["intro:a", None, "intro:c"]
+    assert ["a", "bad", "c"] in calls
+    assert calls.count(["bad"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_resilient_retries_without_readme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.introduction_service as intro_module
+
+    seen_readmes: list[str | None] = []
+
+    async def fake(briefs, **kwargs):
+        seen_readmes.append(briefs[0].readme)
+        if briefs[0].readme:
+            raise IntroductionGenerationError("Content Exists Risk")
+        return ["intro:ok"]
+
+    monkeypatch.setattr(intro_module, "generate_introductions", fake)
+
+    result = await generate_introductions_resilient([make_brief("a", readme="# readme")])
+
+    assert result == ["intro:ok"]
+    assert seen_readmes == ["# readme", None]

@@ -12,11 +12,17 @@ vi.mock('@/api/repositories', () => ({
   fetchStats: vi.fn(),
 }))
 
+vi.mock('@/api/collections', () => ({
+  triggerCollectionRefresh: vi.fn(),
+}))
+
+import { triggerCollectionRefresh } from '@/api/collections'
 import { fetchLanguages, fetchRepositories, fetchStats } from '@/api/repositories'
 
 const mockFetchRepositories = vi.mocked(fetchRepositories)
 const mockFetchLanguages = vi.mocked(fetchLanguages)
 const mockFetchStats = vi.mocked(fetchStats)
+const mockTriggerRefresh = vi.mocked(triggerCollectionRefresh)
 
 const mockRoute = { query: {} as Record<string, string> }
 const mockRouter = {
@@ -44,6 +50,7 @@ function makeResponse(overrides: Partial<RepositoryListResponse> = {}): Reposito
         stars_count: 1500,
         daily_stars: 20,
         weekly_stars: 100,
+        monthly_stars: 400,
         last_synced_at: '2026-08-10T00:00:00Z',
         trend: [],
       },
@@ -128,5 +135,92 @@ describe('HomeView', () => {
     expect(mockFetchRepositories.mock.calls.length).toBe(callsBefore + 1)
     expect(mockFetchRepositories.mock.calls.at(-1)?.[0]?.page).toBe(1)
     expect(mockFetchRepositories.mock.calls.at(-1)?.[0]?.sort).toBe('weekly_stars')
+  })
+
+  it('re-fetches with monthly sort', async () => {
+    mockFetchRepositories.mockResolvedValue(makeResponse())
+    const wrapper = await mountHome()
+    vi.clearAllMocks()
+    mockFetchRepositories.mockResolvedValue(makeResponse())
+    await wrapper.find('[data-testid="sort-monthly_stars"]').trigger('click')
+    await flushPromises()
+    expect(mockFetchRepositories.mock.calls.at(-1)?.[0]?.sort).toBe('monthly_stars')
+  })
+
+  it('starts polling and shows notice after triggering refresh', async () => {
+    vi.useFakeTimers()
+    try {
+      mockFetchRepositories.mockResolvedValue(makeResponse())
+      mockFetchStats.mockResolvedValue({
+        total_repositories: 1,
+        positive_growth_today: 1,
+        last_successful_collection_at: null,
+        last_run_status: 'RUNNING',
+      })
+      const wrapper = await mountHome()
+      mockTriggerRefresh.mockResolvedValueOnce(undefined)
+
+      await wrapper.find('[data-testid="refresh-data"]').trigger('click')
+      await flushPromises()
+
+      expect(mockTriggerRefresh).toHaveBeenCalledOnce()
+      expect(wrapper.find('[data-testid="refresh-data"]').attributes('disabled')).toBeDefined()
+      expect(wrapper.find('[data-testid="refresh-notice"]').text()).toContain('采集中')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reloads data when polling detects a new successful collection', async () => {
+    vi.useFakeTimers()
+    try {
+      mockFetchRepositories.mockResolvedValue(makeResponse())
+      mockFetchStats.mockResolvedValue({
+        total_repositories: 1,
+        positive_growth_today: 1,
+        last_successful_collection_at: null,
+        last_run_status: 'SUCCESS',
+      })
+      const wrapper = await mountHome()
+      mockTriggerRefresh.mockResolvedValueOnce(undefined)
+      mockFetchStats.mockResolvedValue({
+        total_repositories: 1,
+        positive_growth_today: 1,
+        last_successful_collection_at: '2026-08-24T00:00:00Z',
+        last_run_status: 'SUCCESS',
+      })
+      const callsBefore = mockFetchRepositories.mock.calls.length
+
+      await wrapper.find('[data-testid="refresh-data"]').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(5000)
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="refresh-notice"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="refresh-data"]').attributes('disabled')).toBeUndefined()
+      expect(mockFetchRepositories.mock.calls.length).toBeGreaterThan(callsBefore)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('surfaces refresh errors from the API', async () => {
+    mockFetchRepositories.mockResolvedValue(makeResponse())
+    const wrapper = await mountHome()
+    mockTriggerRefresh.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 429'), {
+        isAxiosError: true,
+        response: {
+          status: 429,
+          data: { code: 'REFRESH_COOLDOWN', message: '刚触发过采集，请约 25 分钟后再试。' },
+        },
+      }),
+    )
+
+    await wrapper.find('[data-testid="refresh-data"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="refresh-notice"]').text()).toContain('25 分钟')
+    expect(wrapper.find('[data-testid="refresh-data"]').attributes('disabled')).toBeUndefined()
   })
 })

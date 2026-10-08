@@ -94,6 +94,28 @@ class StarSnapshot(Base):
     )
 
 
+class TrendingEntry(Base):
+    __tablename__ = "trending_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "period", "repository_id", name="uk_trending_entries_period_repo"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    repository_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("repositories.id", ondelete="CASCADE")
+    )
+    period: Mapped[str] = mapped_column(String(16), index=True)
+    rank_position: Mapped[int] = mapped_column(Integer)
+    stars_gained: Mapped[int] = mapped_column(Integer)
+    stars_total: Mapped[int] = mapped_column(Integer, default=0)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default="CURRENT_TIMESTAMP"
+    )
+
+
 class CollectionRun(Base):
     __tablename__ = "collection_runs"
 
@@ -111,4 +133,23 @@ class CollectionRun(Base):
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, server_default="CURRENT_TIMESTAMP"
+    )
+
+
+class Last30DaysReport(Base):
+    __tablename__ = "last30days_reports"
+
+    direction: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonText)
+    message: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default="CURRENT_TIMESTAMP"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        server_default="CURRENT_TIMESTAMP",
+        onupdate=datetime.utcnow,
     )

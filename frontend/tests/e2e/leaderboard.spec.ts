@@ -24,6 +24,19 @@ test('switches to 7-day ranking', async ({ page }) => {
   await expect(page.getByTestId('sort-weekly_stars')).toHaveAttribute('aria-selected', 'true')
 })
 
+test('switches to 30-day ranking', async ({ page }) => {
+  await page.getByTestId('sort-monthly_stars').click()
+  await expect(page.getByTestId('sort-monthly_stars')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('+400').first()).toBeVisible()
+})
+
+test('filters by plugin category', async ({ page }) => {
+  await ensureSidebar(page)
+  await page.getByTestId('category-plugin').click()
+  await expect(page.getByText('ada/claude-plugin-kit')).toBeVisible()
+  await expect(page.getByText('octocat/agent-hub')).toHaveCount(0)
+})
+
 test('filters by category and language', async ({ page }) => {
   await ensureSidebar(page)
   await page.getByTestId('category-mcp').click()

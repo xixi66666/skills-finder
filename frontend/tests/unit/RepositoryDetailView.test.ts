@@ -41,6 +41,7 @@ function makeDetail(overrides: Partial<RepositoryDetail> = {}): RepositoryDetail
     open_issues_count: 3,
     daily_stars: 20,
     weekly_stars: 100,
+    monthly_stars: 400,
     last_synced_at: '2026-08-10T00:00:00Z',
     github_created_at: '2026-01-01T00:00:00Z',
     trend: [
@@ -72,6 +73,8 @@ describe('RepositoryDetailView', () => {
     expect(wrapper.text()).toContain('octocat/agent-hub')
     expect(wrapper.text()).toContain('An agent framework')
     expect(wrapper.text()).toContain('1,500')
+    expect(wrapper.text()).toContain('30 日')
+    expect(wrapper.text()).toContain('+400')
   })
 
   it('renders introduction sections when present', async () => {
@@ -79,7 +82,10 @@ describe('RepositoryDetailView', () => {
       makeDetail({
         introduction: {
           introduction: '这是项目介绍。',
+          highlights: ['亮点一', '亮点二'],
+          requirements: ['Node.js 22+'],
           usage: '直接运行 npm install。',
+          audience: '适合开发者。',
           domains: ['AI Agent', '自动化'],
         },
       }),
@@ -90,12 +96,17 @@ describe('RepositoryDetailView', () => {
     expect(wrapper.text()).toContain('直接运行 npm install。')
     expect(wrapper.text()).toContain('AI Agent')
     expect(wrapper.text()).toContain('自动化')
+    expect(wrapper.find('[data-testid="highlights"]').text()).toContain('亮点一')
+    expect(wrapper.find('[data-testid="requirements"]').text()).toContain('Node.js 22+')
+    expect(wrapper.text()).toContain('适合开发者。')
   })
 
-  it('hides introduction section when absent', async () => {
+  it('shows a placeholder when introduction is absent', async () => {
     mockFetchDetail.mockResolvedValue(makeDetail({ introduction: null }))
     const wrapper = await mountDetail()
     expect(wrapper.find('[data-testid="introduction"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="introduction-missing"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('介绍生成中')
   })
 
   it('renders not-found state on 404', async () => {

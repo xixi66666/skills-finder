@@ -12,6 +12,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   AGENT: 'var(--color-accent)',
   SKILL: 'var(--color-success)',
   MCP: 'var(--color-danger)',
+  PLUGIN: 'var(--color-plugin)',
 }
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -89,6 +90,10 @@ function categoryColor(category: string): string {
       <div class="growth-metric">
         <span class="growth-label">7 日</span>
         <span class="growth-value">{{ formatGrowth(repo.weekly_stars) }}</span>
+      </div>
+      <div class="growth-metric">
+        <span class="growth-label">30 日</span>
+        <span class="growth-value">{{ formatGrowth(repo.monthly_stars) }}</span>
       </div>
       <SparklineChart :points="repo.trend" />
       <a
@@ -232,5 +237,20 @@ function categoryColor(category: string): string {
 .repo-external:hover {
   color: var(--color-accent);
   background-color: var(--color-canvas);
+}
+
+@media (max-width: 768px) {
+  .repo-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .repo-growth {
+    justify-content: space-between;
+  }
+
+  .growth-metric {
+    align-items: flex-start;
+  }
 }
 </style>

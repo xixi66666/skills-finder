@@ -217,7 +217,7 @@ BUSINESS_TIMEZONE=Asia/Shanghai
 COLLECTION_CRON=0 2 * * *
 SCHEDULER_ENABLED=false
 MIN_STARS=100
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:10002
 ```
 
 - [ ] **Step 3：编写完整 MySQL 8.0 建表脚本**

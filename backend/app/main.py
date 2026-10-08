@@ -10,7 +10,7 @@ from app.api.errors import (
     http_exception_handler,
     internal_error_handler,
 )
-from app.api.v1 import admin, health, last30days, repositories, stats
+from app.api.v1 import admin, collections, health, last30days, repositories, stats
 from app.core.config import settings
 from app.core.scheduler import start_scheduler
 
@@ -27,6 +27,7 @@ app = FastAPI(title="Skill Finder API", lifespan=lifespan)
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(collections.router, prefix="/api/v1")
 app.include_router(repositories.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(last30days.router, prefix="/api/v1")

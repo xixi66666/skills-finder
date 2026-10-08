@@ -10,6 +10,7 @@
   --color-accent-emphasis: #0969da;
   --color-success: #1a7f37;
   --color-danger: #cf222e;
+  --color-plugin: #8250df;
   --color-focus-ring: rgba(9, 105, 218, 0.4);
   --color-shadow: rgba(140, 149, 159, 0.2);
   --color-header: #24292f;
@@ -45,6 +46,7 @@
   --color-accent-emphasis: #1f6feb;
   --color-success: #3fb950;
   --color-danger: #f85149;
+  --color-plugin: #a371f7;
   --color-focus-ring: rgba(88, 166, 255, 0.4);
   --color-shadow: rgba(1, 4, 9, 0.5);
   --color-header: #010409;

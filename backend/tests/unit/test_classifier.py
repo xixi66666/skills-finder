@@ -57,3 +57,32 @@ def test_multiple_categories_sorted_and_deduplicated() -> None:
         topics=["mcp-server"],
     )
     assert result.categories == ("AGENT", "SKILL", "MCP")
+
+
+def test_classifies_plugin_from_topic() -> None:
+    result = classify_repository(
+        name="toolbox",
+        description="Extend your editor",
+        topics=["claude-plugin"],
+    )
+    assert result.categories == ("PLUGIN",)
+    assert "topic:claude-plugin" in result.matched_rules
+
+
+def test_classifies_plugin_from_phrase() -> None:
+    result = classify_repository(
+        name="MyClaudePlugin",
+        description="A plugin for Claude",
+        topics=[],
+    )
+    assert "PLUGIN" in result.categories
+    assert "name:claude plugin" in result.matched_rules
+
+
+def test_all_categories_sorted_with_plugin_last() -> None:
+    result = classify_repository(
+        name="agent framework and agent skills hub",
+        description="mcp server with claude plugin",
+        topics=[],
+    )
+    assert result.categories == ("AGENT", "SKILL", "MCP", "PLUGIN")

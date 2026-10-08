@@ -1,6 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 title Skill Finder Launcher
+set FRONTEND_PORT=10002
 
 cd /d "%~dp0"
 echo ============================================
@@ -32,7 +33,7 @@ if %errorlevel% equ 0 (
 echo DONE
 echo.
 echo [3/4] Checking frontend...
-curl.exe -s -o nul --max-time 2 --connect-timeout 2 http://localhost:5173 >nul 2>&1
+curl.exe -s -o nul --max-time 2 --connect-timeout 2 http://localhost:!FRONTEND_PORT! >nul 2>&1
 if %errorlevel% equ 0 (
     echo        Frontend is already running.
 ) else (
@@ -44,7 +45,7 @@ echo.
 echo [4/4] Waiting for frontend, opening browser...
 set READY=0
 for /L %%i in (1,1,30) do (
-    curl.exe -s -o nul --max-time 2 --connect-timeout 2 http://localhost:5173 >nul 2>&1
+    curl.exe -s -o nul --max-time 2 --connect-timeout 2 http://localhost:!FRONTEND_PORT! >nul 2>&1
     if !errorlevel! equ 0 (
         set READY=1
         goto ready
@@ -54,9 +55,9 @@ for /L %%i in (1,1,30) do (
 :ready
 if !READY! equ 1 (
     echo        All services ready!
-    start "" "http://localhost:5173"
+    start "" "http://localhost:!FRONTEND_PORT!"
 ) else (
-    echo        [WARN] Frontend did not start in time. Open http://localhost:5173 manually.
+    echo        [WARN] Frontend did not start in time. Open http://localhost:!FRONTEND_PORT! manually.
 )
 echo.
 pause

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 CATEGORY_AGENT = "AGENT"
 CATEGORY_SKILL = "SKILL"
 CATEGORY_MCP = "MCP"
+CATEGORY_PLUGIN = "PLUGIN"
 
 TOPIC_RULES: tuple[tuple[str, str], ...] = (
     ("ai-agent", CATEGORY_AGENT),
@@ -18,16 +19,37 @@ TOPIC_RULES: tuple[tuple[str, str], ...] = (
     ("codex-skills", CATEGORY_SKILL),
     ("mcp-server", CATEGORY_MCP),
     ("model-context-protocol", CATEGORY_MCP),
+    ("claude-plugin", CATEGORY_PLUGIN),
+    ("ai-plugin", CATEGORY_PLUGIN),
+    ("opencode-plugin", CATEGORY_PLUGIN),
+    ("copilot-extension", CATEGORY_PLUGIN),
 )
 
 PHRASE_RULES: tuple[tuple[str, str], ...] = (
     ("agent framework", CATEGORY_AGENT),
     ("agent frameworks", CATEGORY_AGENT),
+    ("agent skill", CATEGORY_SKILL),
     ("agent skills", CATEGORY_SKILL),
+    ("ai skill", CATEGORY_SKILL),
     ("ai skills", CATEGORY_SKILL),
+    ("claude skill", CATEGORY_SKILL),
+    ("claude skills", CATEGORY_SKILL),
+    ("codex skill", CATEGORY_SKILL),
+    ("codex skills", CATEGORY_SKILL),
     ("mcp server", CATEGORY_MCP),
     ("mcp servers", CATEGORY_MCP),
     ("model context protocol", CATEGORY_MCP),
+    ("claude plugin", CATEGORY_PLUGIN),
+    ("claude plugins", CATEGORY_PLUGIN),
+    ("codex plugin", CATEGORY_PLUGIN),
+    ("codex plugins", CATEGORY_PLUGIN),
+    ("opencode plugin", CATEGORY_PLUGIN),
+    ("opencode plugins", CATEGORY_PLUGIN),
+    ("ai plugin", CATEGORY_PLUGIN),
+    ("ai plugins", CATEGORY_PLUGIN),
+    ("copilot extension", CATEGORY_PLUGIN),
+    ("copilot extensions", CATEGORY_PLUGIN),
+    ("vscode extension for ai", CATEGORY_PLUGIN),
 )
 
 _PHRASE_PATTERNS: tuple[tuple[re.Pattern[str], str, str], ...] = tuple(
@@ -39,6 +61,7 @@ _CATEGORY_ORDER: dict[str, int] = {
     CATEGORY_AGENT: 0,
     CATEGORY_SKILL: 1,
     CATEGORY_MCP: 2,
+    CATEGORY_PLUGIN: 3,
 }
 
 
@@ -48,7 +71,7 @@ class Classification:
     matched_rules: tuple[str, ...]
 
 
-def _normalize(text: str) -> str:
+def normalize_text(text: str) -> str:
     text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
     return re.sub(r"[^a-z0-9]+", " ", text.lower())
 
@@ -64,8 +87,8 @@ def classify_repository(name: str, description: str, topics: list[str]) -> Class
             _add_category(categories, category)
 
     fields = (
-        ("name", _normalize(name)),
-        ("description", _normalize(description)),
+        ("name", normalize_text(name)),
+        ("description", normalize_text(description)),
     )
     for field, text in fields:
         for pattern, phrase, category in _PHRASE_PATTERNS:

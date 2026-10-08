@@ -15,6 +15,7 @@ class RepositoryListItem(BaseModel):
     stars_count: int
     daily_stars: int | None = None
     weekly_stars: int | None = None
+    monthly_stars: int | None = None
     last_synced_at: str | None = None
     trend: list[dict] = []
 
@@ -34,7 +35,10 @@ class TrendPoint(BaseModel):
 
 class RepositoryIntroduction(BaseModel):
     introduction: str
+    highlights: list[str] = []
+    requirements: list[str] = []
     usage: str = ""
+    audience: str = ""
     domains: list[str] = []
 
 
@@ -55,6 +59,7 @@ class RepositoryDetail(BaseModel):
     open_issues_count: int
     daily_stars: int | None = None
     weekly_stars: int | None = None
+    monthly_stars: int | None = None
     last_synced_at: str | None = None
     github_created_at: str | None = None
     trend: list[TrendPoint] = []

@@ -13,6 +13,7 @@ export const MOCK_REPOS = [
     stars_count: 1500,
     daily_stars: 20,
     weekly_stars: 100,
+    monthly_stars: 400,
     last_synced_at: '2026-08-10T00:00:00Z',
     trend: [
       { snapshot_date: '2026-07-20', stars_count: 1300 },
@@ -32,6 +33,7 @@ export const MOCK_REPOS = [
     stars_count: 900,
     daily_stars: 15,
     weekly_stars: 60,
+    monthly_stars: 250,
     last_synced_at: '2026-08-10T00:00:00Z',
     trend: [
       { snapshot_date: '2026-07-20', stars_count: 820 },
@@ -50,6 +52,23 @@ export const MOCK_REPOS = [
     stars_count: 700,
     daily_stars: null,
     weekly_stars: null,
+    monthly_stars: null,
+    last_synced_at: '2026-08-10T00:00:00Z',
+    trend: [],
+  },
+  {
+    id: 4,
+    owner: 'ada',
+    name: 'claude-plugin-kit',
+    description: 'Claude plugin starter kit',
+    html_url: 'https://github.com/ada/claude-plugin-kit',
+    language: 'TypeScript',
+    topics: ['claude-plugin', 'plugins'],
+    categories: ['PLUGIN'],
+    stars_count: 500,
+    daily_stars: 12,
+    weekly_stars: 45,
+    monthly_stars: 180,
     last_synced_at: '2026-08-10T00:00:00Z',
     trend: [],
   },
@@ -62,7 +81,10 @@ const MOCK_DETAIL = {
   description: 'Composable agent framework',
   introduction: {
     introduction: '一个可组合的 AI Agent 框架，支持多工具调用与记忆管理。',
+    highlights: ['多工具调用', '记忆管理', '可组合'],
+    requirements: ['Node.js 18+'],
     usage: '直接运行 npm install 后即可集成到现有项目。',
+    audience: '适合需要构建 Agent 应用的开发者。',
     domains: ['AI Agent', '自动化', '工具调用'],
   },
   html_url: 'https://github.com/octocat/agent-hub',
@@ -76,6 +98,7 @@ const MOCK_DETAIL = {
   open_issues_count: 4,
   daily_stars: 20,
   weekly_stars: 100,
+  monthly_stars: 400,
   last_synced_at: '2026-08-10T00:00:00Z',
   github_created_at: '2026-01-01T00:00:00Z',
   trend: [
@@ -123,7 +146,7 @@ export async function mockApi(page: Page): Promise<void> {
     await route.fulfill({
       json: [
         { language: 'Python', count: 2 },
-        { language: 'TypeScript', count: 1 },
+        { language: 'TypeScript', count: 2 },
       ],
     })
   })
@@ -131,8 +154,8 @@ export async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/v1/stats', async (route) => {
     await route.fulfill({
       json: {
-        total_repositories: 3,
-        positive_growth_today: 2,
+        total_repositories: 4,
+        positive_growth_today: 3,
         last_successful_collection_at: '2026-08-10T00:00:00Z',
         last_run_status: 'SUCCESS',
       },

@@ -9,9 +9,10 @@ import httpx
 
 GITHUB_API_BASE = "https://api.github.com"
 ACCEPT_HEADER = "application/vnd.github+json"
+RAW_ACCEPT_HEADER = "application/vnd.github.raw+json"
 API_VERSION = "2022-11-28"
-SEARCH_MAX_RESULTS = 1000
 DEFAULT_RETRY_DELAYS = (0.5, 1.0, 2.0)
+README_MAX_CHARS = 12000
 
 
 @dataclass(frozen=True)
@@ -115,28 +116,6 @@ class GitHubClient:
             await self._client.aclose()
             self._client = None
 
-    async def search_repositories(self, query: str, min_stars: int) -> list[GitHubRepository]:
-        repositories: list[GitHubRepository] = []
-        page = 1
-        while len(repositories) < SEARCH_MAX_RESULTS:
-            response = await self._request(
-                "GET",
-                "/search/repositories",
-                params={
-                    "q": f"{query} stars:>={min_stars} fork:false archived:false",
-                    "sort": "stars",
-                    "order": "desc",
-                    "per_page": 100,
-                    "page": page,
-                },
-            )
-            items = response.json().get("items") or []
-            repositories.extend(GitHubRepository.from_payload(item) for item in items)
-            if not items or not _next_page(response):
-                break
-            page += 1
-        return repositories[:SEARCH_MAX_RESULTS]
-
     async def get_repository(self, full_name: str) -> GitHubRepository | None:
         response = await self._request(
             "GET",
@@ -146,6 +125,21 @@ class GitHubClient:
         if response.status_code == 404:
             return None
         return GitHubRepository.from_payload(response.json())
+
+    async def get_readme(self, full_name: str) -> str | None:
+        """Return the raw README text (truncated), or None when absent."""
+        response = await self._request(
+            "GET",
+            f"/repos/{full_name}/readme",
+            status_codes=[200, 404],
+            accept=RAW_ACCEPT_HEADER,
+        )
+        if response.status_code == 404:
+            return None
+        text = response.text.strip()
+        if not text:
+            return None
+        return text[:README_MAX_CHARS]
 
     async def get_rate_limit(self) -> RateLimit:
         response = await self._request("GET", "/rate_limit")
@@ -163,6 +157,7 @@ class GitHubClient:
         *,
         params: dict[str, Any] | None = None,
         status_codes: list[int] | None = None,
+        accept: str | None = None,
     ) -> httpx.Response:
         assert self._client is not None
         allowed = status_codes or [200]
@@ -174,7 +169,7 @@ class GitHubClient:
                     url,
                     params=params,
                     headers={
-                        "Accept": ACCEPT_HEADER,
+                        "Accept": accept or ACCEPT_HEADER,
                         "Authorization": f"Bearer {self._token}",
                         "X-GitHub-Api-Version": API_VERSION,
                     },
@@ -205,12 +200,3 @@ class GitHubClient:
 
 def _is_rate_limited(response: httpx.Response) -> bool:
     return response.status_code == 403 and response.headers.get("X-RateLimit-Remaining") == "0"
-
-
-def _next_page(response: httpx.Response) -> str | None:
-    link = response.headers.get("Link", "")
-    for part in link.split(","):
-        section = part.split(";")
-        if len(section) == 2 and 'rel="next"' in section[1]:
-            return section[0].strip().strip("<>")
-    return None

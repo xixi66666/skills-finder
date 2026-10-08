@@ -52,9 +52,11 @@ async def run_collection(lease: CollectionLockLease | None) -> None:
     """Execute a collection run within a held lock lease, releasing it on exit."""
     from app.collector.github_client import GitHubClient
     from app.collector.service import CollectionService
+    from app.collector.trending import TrendingScraper
     from app.repositories.collection_runs import CollectionRunStore
     from app.repositories.repositories import RepositoryStore
     from app.repositories.snapshots import SnapshotStore
+    from app.repositories.trending import TrendingStore
 
     try:
         async with (
@@ -62,13 +64,16 @@ async def run_collection(lease: CollectionLockLease | None) -> None:
             GitHubClient(token=settings.github_token.get_secret_value()) as github_client,
         ):
             service = CollectionService(
+                scraper=TrendingScraper(proxy=settings.trending_proxy),
                 github_client=github_client,
                 repository_store=RepositoryStore(session),
                 snapshot_store=SnapshotStore(session),
+                trending_store=TrendingStore(session),
                 run_store=CollectionRunStore(session),
                 session=session,
                 business_timezone=settings.business_timezone,
-                min_stars=settings.min_stars,
+                top_n=settings.trending_top_n,
+                ai_keywords=settings.trending_ai_keywords,
                 trigger_type="manual",
             )
             result = await service.run()

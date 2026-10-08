@@ -23,6 +23,7 @@ const categories: { value: Category | ''; label: string }[] = [
   { value: 'AGENT', label: 'Agent' },
   { value: 'SKILL', label: 'Skill' },
   { value: 'MCP', label: 'MCP' },
+  { value: 'PLUGIN', label: '插件' },
 ]
 
 const minStarOptions = [

@@ -7,9 +7,26 @@ import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.repositories.last30days_reports import Last30DaysReportStore
+
+Direction = Literal["agent", "skill"]
+
+DIRECTION_QUERIES: dict[str, str] = {
+    "agent": "AI agents",
+    "skill": "AI agent skills",
+}
+
+TOP_RANK_LIMIT = 20
+
+_REFRESH_FETCH_LIMIT = 100
+
+_DIRECTION_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 class Last30DaysNotConfigured(RuntimeError):
@@ -251,3 +268,132 @@ async def diagnose_last30days() -> dict[str, Any]:
         "sources": [str(source) for source in sources] if isinstance(sources, list) else [],
         "message": None if payload.get("safe", True) else "last30days 诊断未通过。",
     }
+
+
+def _engagement_total(engagement: Any) -> float:
+    if not isinstance(engagement, dict):
+        return 0.0
+    return float(
+        sum(
+            value
+            for value in engagement.values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        )
+    )
+
+
+def rank_items(items: list[Any], limit: int = TOP_RANK_LIMIT) -> list[dict[str, Any]]:
+    """Sort engine results by total engagement, descending, and keep the top `limit`."""
+    valid = [item for item in items if isinstance(item, dict)]
+    return sorted(
+        valid, key=lambda item: _engagement_total(item.get("engagement")), reverse=True
+    )[:limit]
+
+
+def _empty_ranking(direction: str, status: str, message: str) -> dict[str, Any]:
+    return {
+        "direction": direction,
+        "status": status,
+        "items": [],
+        "clusters": [],
+        "sources": [],
+        "source_status": {},
+        "fetched_at": "",
+        "message": message,
+    }
+
+
+def _parse_fetched_at(value: Any) -> datetime:
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError:
+            pass
+        else:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _ranking_from_report(direction: str, report: Any) -> dict[str, Any]:
+    payload = report.payload if isinstance(report.payload, dict) else {}
+    fetched_at = report.fetched_at
+    if isinstance(fetched_at, datetime):
+        fetched_iso = fetched_at.replace(tzinfo=UTC).isoformat()
+    else:
+        fetched_iso = str(fetched_at or "")
+    return {
+        "direction": direction,
+        "status": report.status,
+        "items": payload.get("items") or [],
+        "clusters": payload.get("clusters") or [],
+        "sources": payload.get("sources") or [],
+        "source_status": payload.get("source_status") or {},
+        "fetched_at": fetched_iso,
+        "message": report.message,
+    }
+
+
+async def get_ranking(session: AsyncSession, direction: Direction) -> dict[str, Any]:
+    try:
+        report = await Last30DaysReportStore(session).get(direction)
+    except SQLAlchemyError:
+        return _empty_ranking(
+            direction, "no-results", "榜单存储未初始化，请先执行最新的 schema.sql。"
+        )
+    if report is None:
+        return _empty_ranking(
+            direction, "no-results", "该方向还没有榜单数据，点击刷新按钮生成。"
+        )
+    return _ranking_from_report(direction, report)
+
+
+async def refresh_ranking(session: AsyncSession, direction: Direction) -> dict[str, Any]:
+    if direction not in DIRECTION_QUERIES:
+        raise ValueError(f"未知方向：{direction}")
+    if not settings.last30days_enabled:
+        return _empty_ranking(direction, "skipped", "last30days 模块已禁用。")
+
+    async with _DIRECTION_LOCKS.setdefault(direction, asyncio.Lock()):
+        result = await fetch_last30days(
+            query=DIRECTION_QUERIES[direction], limit=_REFRESH_FETCH_LIMIT
+        )
+        status = str(result["status"])
+        if status in {"unconfigured", "error", "skipped"}:
+            response = _empty_ranking(direction, status, result.get("message") or "研究任务没有成功完成。")
+            return response
+
+        top_items = rank_items(result["items"], TOP_RANK_LIMIT)
+        payload = {
+            "items": top_items,
+            "clusters": result["clusters"],
+            "sources": result["sources"],
+            "source_status": result["source_status"],
+        }
+        message = result.get("message")
+        fetched_at = _parse_fetched_at(result.get("fetched_at"))
+        try:
+            await Last30DaysReportStore(session).upsert(
+                direction=direction,
+                status=status,
+                payload=payload,
+                message=message,
+                fetched_at=fetched_at,
+            )
+            await session.commit()
+        except SQLAlchemyError:
+            await session.rollback()
+            return _empty_ranking(
+                direction, "error", "榜单保存失败，请先执行最新的 schema.sql。"
+            )
+        return {
+            "direction": direction,
+            "status": status,
+            "items": top_items,
+            "clusters": result["clusters"],
+            "sources": result["sources"],
+            "source_status": result["source_status"],
+            "fetched_at": fetched_at.replace(tzinfo=UTC).isoformat(),
+            "message": message,
+        }

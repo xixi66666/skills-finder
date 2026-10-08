@@ -52,6 +52,23 @@ CREATE TABLE star_snapshots (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE trending_entries (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  repository_id BIGINT UNSIGNED NOT NULL,
+  period VARCHAR(16) NOT NULL,
+  rank_position INT UNSIGNED NOT NULL,
+  stars_gained INT NOT NULL,
+  stars_total INT UNSIGNED NOT NULL DEFAULT 0,
+  fetched_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_trending_entries_period_repo (period, repository_id),
+  KEY idx_trending_entries_period_rank (period, rank_position),
+  CONSTRAINT fk_trending_entries_repository
+    FOREIGN KEY (repository_id) REFERENCES repositories (id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE collection_runs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   status VARCHAR(32) NOT NULL,
@@ -69,6 +86,20 @@ CREATE TABLE collection_runs (
   PRIMARY KEY (id),
   KEY idx_collection_runs_started (started_at),
   KEY idx_collection_runs_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE last30days_reports (
+  direction VARCHAR(32) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  payload MEDIUMTEXT NOT NULL,
+  message VARCHAR(512) NULL,
+  fetched_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- No DB default: MySQL 5.5 allows one CURRENT_TIMESTAMP default per table, and
+  -- epoch defaults break under non-UTC session time zones. The application layer
+  -- sets updated_at on every write.
+  updated_at DATETIME NULL,
+  PRIMARY KEY (direction)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 

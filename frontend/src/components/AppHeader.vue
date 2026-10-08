@@ -42,7 +42,7 @@ function onSearchInput() {
     <nav class="primary-nav" aria-label="主导航">
       <RouterLink to="/last30days" class="nav-link">
         <Newspaper :size="16" aria-hidden="true" />
-        <span>近 30 天研究</span>
+        <span>近 30 天最热</span>
       </RouterLink>
     </nav>
     <div class="search-box">

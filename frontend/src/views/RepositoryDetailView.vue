@@ -88,7 +88,11 @@ onUnmounted(() => controller?.abort())
           <span class="detail-stat"><strong>{{ formatStars(detail.stars_count) }}</strong> stars</span>
           <span class="detail-stat"><strong>{{ formatStars(detail.forks_count) }}</strong> forks</span>
           <span class="detail-stat"><strong>{{ formatStars(detail.open_issues_count) }}</strong> issues</span>
-          <span class="growth-value" data-testid="growth">今日 {{ formatSigned(detail.daily_stars) }}</span>
+          <span class="growth-value" data-testid="growth">
+            今日 {{ formatSigned(detail.daily_stars) }} · 7 日
+            {{ formatSigned(detail.weekly_stars) }} · 30 日
+            {{ formatSigned(detail.monthly_stars) }}
+          </span>
         </div>
         <a
           :href="detail.html_url"
@@ -106,11 +110,28 @@ onUnmounted(() => controller?.abort())
         <h2 class="section-title">项目介绍</h2>
         <div class="introduction-card">
           <div class="intro-block">
+            <h3 class="intro-subtitle">简介</h3>
             <p class="intro-text">{{ detail.introduction.introduction }}</p>
           </div>
+          <div v-if="detail.introduction.highlights.length > 0" class="intro-block">
+            <h3 class="intro-subtitle">核心功能</h3>
+            <ul class="intro-list" data-testid="highlights">
+              <li v-for="item in detail.introduction.highlights" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div v-if="detail.introduction.requirements.length > 0" class="intro-block">
+            <h3 class="intro-subtitle">环境要求</h3>
+            <ul class="intro-list" data-testid="requirements">
+              <li v-for="item in detail.introduction.requirements" :key="item">{{ item }}</li>
+            </ul>
+          </div>
           <div v-if="detail.introduction.usage" class="intro-block">
-            <h3 class="intro-subtitle">用法</h3>
-            <p class="intro-text">{{ detail.introduction.usage }}</p>
+            <h3 class="intro-subtitle">如何使用</h3>
+            <p class="intro-text intro-usage" data-testid="usage">{{ detail.introduction.usage }}</p>
+          </div>
+          <div v-if="detail.introduction.audience" class="intro-block">
+            <h3 class="intro-subtitle">适合人群</h3>
+            <p class="intro-text">{{ detail.introduction.audience }}</p>
           </div>
           <div v-if="detail.introduction.domains.length > 0" class="intro-block">
             <h3 class="intro-subtitle">应用领域</h3>
@@ -120,6 +141,13 @@ onUnmounted(() => controller?.abort())
               </span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section v-else class="detail-section" data-testid="introduction-missing">
+        <h2 class="section-title">项目介绍</h2>
+        <div class="introduction-card intro-placeholder">
+          <p class="intro-text">介绍生成中：采集任务会自动为项目生成中文介绍，稍后刷新页面试试。</p>
         </div>
       </section>
 
@@ -164,6 +192,10 @@ onUnmounted(() => controller?.abort())
           <div class="detail-row">
             <dt>7 日增长</dt>
             <dd>{{ formatSigned(detail.weekly_stars) }}</dd>
+          </div>
+          <div class="detail-row">
+            <dt>30 日增长</dt>
+            <dd>{{ formatSigned(detail.monthly_stars) }}</dd>
           </div>
         </dl>
       </section>
@@ -319,6 +351,26 @@ onUnmounted(() => controller?.abort())
   color: var(--color-text-primary);
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.intro-usage {
+  white-space: pre-wrap;
+}
+
+.intro-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+}
+
+.intro-placeholder {
+  border-style: dashed;
+  color: var(--color-text-secondary);
 }
 
 .domains-list {

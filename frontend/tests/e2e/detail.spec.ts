@@ -11,6 +11,8 @@ test('shows repository detail with introduction', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'octocat/agent-hub' })).toBeVisible()
   await expect(page.getByTestId('introduction')).toBeVisible()
   await expect(page.getByText('Composable agent framework')).toBeVisible()
+  await expect(page.getByTestId('highlights')).toContainText('多工具调用')
+  await expect(page.getByTestId('usage')).toContainText('npm install')
 })
 
 test('shows not found for unknown repo', async ({ page }) => {

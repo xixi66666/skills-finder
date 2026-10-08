@@ -1,6 +1,6 @@
-export type Category = 'AGENT' | 'SKILL' | 'MCP'
+export type Category = 'AGENT' | 'SKILL' | 'MCP' | 'PLUGIN'
 
-export type SortKey = 'daily_stars' | 'weekly_stars' | 'total_stars'
+export type SortKey = 'daily_stars' | 'weekly_stars' | 'monthly_stars' | 'total_stars'
 
 export interface TrendPoint {
   snapshot_date: string
@@ -19,6 +19,7 @@ export interface RepositoryListItem {
   stars_count: number
   daily_stars: number | null
   weekly_stars: number | null
+  monthly_stars: number | null
   last_synced_at: string | null
   trend: TrendPoint[]
 }
@@ -33,7 +34,10 @@ export interface RepositoryListResponse {
 
 export interface RepositoryIntroduction {
   introduction: string
+  highlights: string[]
+  requirements: string[]
   usage: string
+  audience: string
   domains: string[]
 }
 
@@ -54,6 +58,7 @@ export interface RepositoryDetail {
   open_issues_count: number
   daily_stars: number | null
   weekly_stars: number | null
+  monthly_stars: number | null
   last_synced_at: string | null
   github_created_at: string | null
   trend: TrendPoint[]

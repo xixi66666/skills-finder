@@ -5,6 +5,7 @@ defineProps<{
   variant: 'skeleton' | 'empty' | 'error'
   title: string
   message?: string
+  actionLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -40,7 +41,7 @@ const emit = defineEmits<{
       @click="emit('action')"
     >
       <RotateCw :size="14" aria-hidden="true" />
-      {{ variant === 'empty' ? '清空筛选条件' : '重试' }}
+      {{ actionLabel ?? (variant === 'empty' ? '清空筛选条件' : '重试') }}
     </button>
   </section>
 </template>

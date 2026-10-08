@@ -12,6 +12,7 @@ from app.collector.github_client import GitHubRepository
 from app.repositories.collection_runs import CollectionRunStore
 from app.repositories.repositories import RepositoryStore
 from app.repositories.snapshots import SnapshotStore
+from app.repositories.trending import TrendingEntryValue, TrendingStore
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "sql" / "schema.sql"
 
@@ -50,7 +51,12 @@ def make_repo(github_id: int, full_name: str, stars: int = 150) -> GitHubReposit
 async def session():
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as conn:
-        for table in ("star_snapshots", "collection_runs", "repositories"):
+        for table in (
+            "trending_entries",
+            "star_snapshots",
+            "collection_runs",
+            "repositories",
+        ):
             await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}"))
         await conn.execute(sa.text(SCHEMA_PATH.read_text(encoding="utf-8")))
     factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -117,6 +123,29 @@ async def test_snapshot_store_upsert_conflicts(session: AsyncSession) -> None:
         {"rid": repo.id},
     )
     assert result.scalar() == 120
+
+
+async def test_trending_store_replaces_period(session: AsyncSession) -> None:
+    repo_store = RepositoryStore(session)
+    classification = Classification(categories=("SKILL",), matched_rules=("topic:agent-skills",))
+    repo = await repo_store.upsert(make_repo(3, "c/skill-hub"), classification)
+
+    store = TrendingStore(session)
+    fetched_at = datetime(2026, 8, 10, tzinfo=UTC)
+    await store.replace_period(
+        "daily", [TrendingEntryValue(repo.id, 1, 321, 900)], fetched_at
+    )
+    await session.commit()
+
+    rows = await session.execute(
+        sa.text("SELECT stars_gained FROM trending_entries WHERE period = 'daily'")
+    )
+    assert rows.scalar() == 321
+
+    await store.replace_period("daily", [], fetched_at)
+    await session.commit()
+    remaining = await session.execute(sa.text("SELECT COUNT(*) FROM trending_entries"))
+    assert remaining.scalar() == 0
 
 
 async def test_collection_run_store_lifecycle(session: AsyncSession) -> None:

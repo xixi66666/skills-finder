@@ -1,47 +1,25 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import CollectionRun, Repository, StarSnapshot
+from app.db.models import CollectionRun, Repository, TrendingEntry
 
 
 class StatsService:
-    def __init__(self, business_timezone: str = "Asia/Shanghai") -> None:
-        self._timezone = ZoneInfo(business_timezone)
-
     async def get_stats(self, session: AsyncSession) -> dict:
         total = await session.scalar(
             select(func.count(Repository.id)).where(Repository.available.is_(True))
         )
-        today = datetime.now(self._timezone).date()
 
-        latest_date_row = await session.execute(
-            select(func.max(StarSnapshot.snapshot_date))
-        )
-        latest_date = latest_date_row.scalar()
-        positive_growth = 0
-        if latest_date is not None:
-            latest_rows = await session.execute(
-                select(StarSnapshot.repository_id, StarSnapshot.stars_count).where(
-                    StarSnapshot.snapshot_date == latest_date
-                )
+        positive_growth = await session.scalar(
+            select(func.count(TrendingEntry.id)).where(
+                TrendingEntry.period == "daily",
+                TrendingEntry.stars_gained > 0,
             )
-            for repo_id, stars in latest_rows.all():
-                prev = await session.scalar(
-                    select(StarSnapshot.stars_count)
-                    .where(
-                        StarSnapshot.repository_id == repo_id,
-                        StarSnapshot.snapshot_date <= today - timedelta(days=1),
-                    )
-                    .order_by(StarSnapshot.snapshot_date.desc())
-                    .limit(1)
-                )
-                if prev is not None and stars > prev:
-                    positive_growth += 1
+        )
 
         success_row = await session.execute(
             select(CollectionRun)

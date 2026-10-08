@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from app.api.errors import REPOSITORY_NOT_FOUND, ApiError, api_error_handler
 from app.api.v1 import repositories, stats
 from app.schemas.common import PageParams
 from app.schemas.repository import RepositoryDetail, RepositoryListItem
+from app.services.repository_service import _parse_introduction
 
 DUMMY_ITEM = RepositoryListItem(
     id=1,
@@ -23,6 +25,7 @@ DUMMY_ITEM = RepositoryListItem(
     stars_count=1500,
     daily_stars=20,
     weekly_stars=100,
+    monthly_stars=400,
     last_synced_at="2026-08-10T00:00:00Z",
     trend=[],
 )
@@ -60,6 +63,7 @@ class FakeRepositoryService:
                 open_issues_count=3,
                 daily_stars=20,
                 weekly_stars=100,
+                monthly_stars=400,
                 last_synced_at="2026-08-10T00:00:00Z",
                 github_created_at="2026-01-01T00:00:00Z",
                 trend=[],
@@ -115,6 +119,55 @@ def test_list_rejects_invalid_params(
     response = client.get("/api/v1/repositories", params=params)
     assert response.status_code == 422
     assert invalid in response.text
+
+
+def test_list_accepts_monthly_sort_and_plugin_category(client: TestClient) -> None:
+    response = client.get(
+        "/api/v1/repositories",
+        params={"sort": "monthly_stars", "category": "PLUGIN"},
+    )
+    assert response.status_code == 200
+
+
+def test_parse_introduction_rich_fields() -> None:
+    raw = json.dumps(
+        {
+            "introduction": "项目简介",
+            "highlights": ["亮点一", " "],
+            "requirements": ["Node.js 22+"],
+            "usage": "运行 npm install",
+            "audience": "开发者",
+            "domains": ["AI Agent"],
+        },
+        ensure_ascii=False,
+    )
+    parsed = _parse_introduction(raw)
+    assert parsed is not None
+    assert parsed.introduction == "项目简介"
+    assert parsed.highlights == ["亮点一"]
+    assert parsed.requirements == ["Node.js 22+"]
+    assert parsed.usage == "运行 npm install"
+    assert parsed.audience == "开发者"
+    assert parsed.domains == ["AI Agent"]
+
+
+def test_parse_introduction_legacy_format() -> None:
+    raw = json.dumps(
+        {"introduction": "旧格式", "usage": "用法", "domains": ["RAG"]},
+        ensure_ascii=False,
+    )
+    parsed = _parse_introduction(raw)
+    assert parsed is not None
+    assert parsed.introduction == "旧格式"
+    assert parsed.highlights == []
+    assert parsed.requirements == []
+    assert parsed.audience == ""
+
+
+def test_parse_introduction_plain_text_fallback() -> None:
+    parsed = _parse_introduction("一段纯文本介绍")
+    assert parsed is not None
+    assert parsed.introduction == "一段纯文本介绍"
 
 
 def test_detail_success(client: TestClient) -> None:

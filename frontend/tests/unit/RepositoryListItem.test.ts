@@ -18,6 +18,7 @@ function makeRepo(overrides: Partial<Repo> = {}): Repo {
     stars_count: 1500,
     daily_stars: 20,
     weekly_stars: 100,
+    monthly_stars: 400,
     last_synced_at: '2026-08-10T00:00:00Z',
     trend: [],
     ...overrides,
@@ -45,13 +46,19 @@ describe('RepositoryListItem', () => {
   })
 
   it('shows growth values and keeps minus sign for negatives', () => {
-    const wrapper = mountItem(makeRepo({ daily_stars: -5, weekly_stars: -20 }))
+    const wrapper = mountItem(
+      makeRepo({ daily_stars: -5, weekly_stars: -20, monthly_stars: -40 }),
+    )
     expect(wrapper.text()).toContain('-5')
     expect(wrapper.text()).toContain('-20')
+    expect(wrapper.text()).toContain('-40')
+    expect(wrapper.text()).toContain('30 日')
   })
 
   it('shows dash for null growth', () => {
-    const wrapper = mountItem(makeRepo({ daily_stars: null, weekly_stars: null }))
+    const wrapper = mountItem(
+      makeRepo({ daily_stars: null, weekly_stars: null, monthly_stars: null }),
+    )
     expect(wrapper.text()).toContain('--')
   })
 

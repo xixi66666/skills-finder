@@ -104,3 +104,75 @@ def test_research_endpoint_preserves_unconfigured_status() -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "unconfigured"
     assert response.json()["message"] == "runtime missing"
+
+
+def _ranking_result(direction: str = "agent") -> dict:
+    return {
+        "direction": direction,
+        "status": "working",
+        "items": [
+            {
+                "candidate_id": "reddit-1",
+                "title": "What developers are saying",
+                "source": "reddit",
+                "url": "https://www.reddit.com/r/example/1",
+                "published_at": "2026-08-20T00:00:00Z",
+                "summary": "A grounded community summary.",
+                "engagement": {"score": 210, "comments": 42},
+                "relevance_score": 0.95,
+                "cluster": 0,
+            }
+        ],
+        "clusters": [],
+        "sources": ["reddit"],
+        "source_status": {"reddit": "ok"},
+        "fetched_at": "2026-08-21T00:00:00Z",
+        "message": None,
+    }
+
+
+def test_rankings_endpoint_returns_cached_report() -> None:
+    runner = AsyncMock(return_value=_ranking_result())
+    with patch("app.api.v1.last30days.get_ranking", runner):
+        response = client.get("/api/v1/last30days/rankings", params={"direction": "agent"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["direction"] == "agent"
+    assert payload["items"][0]["candidate_id"] == "reddit-1"
+    assert runner.await_count == 1
+    assert runner.await_args.args[1] == "agent"
+
+
+def test_rankings_endpoint_defaults_to_agent() -> None:
+    runner = AsyncMock(return_value=_ranking_result())
+    with patch("app.api.v1.last30days.get_ranking", runner):
+        response = client.get("/api/v1/last30days/rankings")
+
+    assert response.status_code == 200
+    assert runner.await_args.args[1] == "agent"
+
+
+def test_rankings_endpoint_rejects_unknown_direction() -> None:
+    response = client.get("/api/v1/last30days/rankings", params={"direction": "mcp"})
+
+    assert response.status_code == 422
+
+
+def test_refresh_endpoint_passes_direction() -> None:
+    runner = AsyncMock(return_value=_ranking_result(direction="skill"))
+    with patch("app.api.v1.last30days.refresh_ranking", runner):
+        response = client.post(
+            "/api/v1/last30days/rankings/refresh", json={"direction": "skill"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["direction"] == "skill"
+    runner.assert_awaited_once()
+    assert runner.await_args.args[1] == "skill"
+
+
+def test_refresh_endpoint_rejects_unknown_direction() -> None:
+    response = client.post("/api/v1/last30days/rankings/refresh", json={"direction": "mcp"})
+
+    assert response.status_code == 422

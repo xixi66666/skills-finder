@@ -4,11 +4,11 @@ import json
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Integer, Text, cast, func, select, text
+from sqlalchemy import Text, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import REPOSITORY_NOT_FOUND, ApiError
-from app.db.models import CollectionRun, Repository, StarSnapshot
+from app.db.models import CollectionRun, Repository, StarSnapshot, TrendingEntry
 from app.schemas.common import PageParams
 from app.schemas.repository import (
     RepositoryDetail,
@@ -32,24 +32,19 @@ class RepositoryService:
         min_stars: int | None,
         q: str | None,
     ) -> dict:
-        latest, daily_base, weekly_base = self._snapshot_joins()
+        daily = self._trending_subquery("daily")
+        weekly = self._trending_subquery("weekly")
+        monthly = self._trending_subquery("monthly")
 
-        latest_stars = cast(latest.c.stars_count, Integer).label("latest_stars")
-        base_daily = cast(daily_base.c.stars_count, Integer)
-        base_weekly = cast(weekly_base.c.stars_count, Integer)
-        daily_stars = (latest_stars - base_daily).label("daily_stars")
-        weekly_stars = (latest_stars - base_weekly).label("weekly_stars")
+        daily_stars = daily.c.daily_stars
+        weekly_stars = weekly.c.weekly_stars
+        monthly_stars = monthly.c.monthly_stars
 
         query = (
-            select(
-                Repository,
-                latest_stars,
-                daily_stars,
-                weekly_stars,
-            )
-            .join(latest, Repository.id == latest.c.repository_id)
-            .outerjoin(daily_base, Repository.id == daily_base.c.repository_id)
-            .outerjoin(weekly_base, Repository.id == weekly_base.c.repository_id)
+            select(Repository, daily_stars, weekly_stars, monthly_stars)
+            .outerjoin(daily, Repository.id == daily.c.repository_id)
+            .outerjoin(weekly, Repository.id == weekly.c.repository_id)
+            .outerjoin(monthly, Repository.id == monthly.c.repository_id)
             .where(Repository.available.is_(True))
         )
 
@@ -71,6 +66,8 @@ class RepositoryService:
 
         if sort == "total_stars":
             sort_col = Repository.stars_count
+        elif sort == "monthly_stars":
+            sort_col = monthly_stars
         elif sort == "weekly_stars":
             sort_col = weekly_stars
         else:
@@ -91,8 +88,8 @@ class RepositoryService:
         )
 
         items = [
-            self._to_list_item(row, daily, weekly)
-            for row, _latest, daily, weekly in rows.all()
+            self._to_list_item(row, daily, weekly, monthly)
+            for row, daily, weekly, monthly in rows.all()
         ]
         last_success = await self._last_successful_collection(session)
         return {
@@ -118,8 +115,16 @@ class RepositoryService:
             raise ApiError(REPOSITORY_NOT_FOUND, "Repository not found", 404)
 
         today = datetime.now(self._timezone).date()
-        daily = await self._growth_between(session, repository.id, today, 1)
-        weekly = await self._growth_between(session, repository.id, today, 7)
+        trending = await self._trending_growth(session, repository.id)
+        daily = trending.get("daily")
+        if daily is None:
+            daily = await self._growth_between(session, repository.id, today, 1)
+        weekly = trending.get("weekly")
+        if weekly is None:
+            weekly = await self._growth_between(session, repository.id, today, 7)
+        monthly = trending.get("monthly")
+        if monthly is None:
+            monthly = await self._growth_between(session, repository.id, today, 30)
 
         trend_rows = await session.execute(
             select(StarSnapshot)
@@ -152,69 +157,40 @@ class RepositoryService:
             open_issues_count=repository.open_issues_count,
             daily_stars=daily,
             weekly_stars=weekly,
+            monthly_stars=monthly,
             last_synced_at=_iso(repository.last_synced_at),
             github_created_at=_iso(repository.github_created_at),
             trend=trend,
         )
 
-    def _snapshot_joins(self):
-        latest = self._latest_snapshot()
-        daily_base = self._baseline_snapshot(
-            latest.c.snapshot_date, offset_days=1
-        )
-        weekly_base = self._baseline_snapshot(
-            latest.c.snapshot_date, offset_days=7
-        )
-        return latest, daily_base, weekly_base
-
-    def _latest_snapshot(self):
-        latest_date = (
-            select(
-                StarSnapshot.repository_id.label("repository_id"),
-                func.max(StarSnapshot.snapshot_date).label("latest_date"),
-            )
-            .group_by(StarSnapshot.repository_id)
-            .subquery()
-        )
+    def _trending_subquery(self, period: str):
         return (
             select(
-                latest_date.c.repository_id,
-                StarSnapshot.snapshot_date,
-                StarSnapshot.stars_count,
+                TrendingEntry.repository_id.label("repository_id"),
+                TrendingEntry.stars_gained.label(f"{period}_stars"),
             )
-            .join(
-                StarSnapshot,
-                (StarSnapshot.repository_id == latest_date.c.repository_id)
-                & (StarSnapshot.snapshot_date == latest_date.c.latest_date),
-            )
+            .where(TrendingEntry.period == period)
             .subquery()
         )
 
-    def _baseline_snapshot(self, latest_date, offset_days: int):
-        cutoff = latest_date.op("-")(text(f"INTERVAL {offset_days} DAY"))
-        base_date = (
-            select(
-                StarSnapshot.repository_id.label("repository_id"),
-                func.max(StarSnapshot.snapshot_date).label("base_date"),
-            )
-            .where(StarSnapshot.snapshot_date <= cutoff)
-            .group_by(StarSnapshot.repository_id)
-            .subquery()
+    async def _trending_growth(
+        self, session: AsyncSession, repository_id: int
+    ) -> dict[str, int | None]:
+        rows = await session.execute(
+            select(TrendingEntry).where(TrendingEntry.repository_id == repository_id)
         )
-        return (
-            select(
-                base_date.c.repository_id,
-                StarSnapshot.stars_count,
-            )
-            .join(
-                StarSnapshot,
-                (StarSnapshot.repository_id == base_date.c.repository_id)
-                & (StarSnapshot.snapshot_date == base_date.c.base_date),
-            )
-            .subquery()
-        )
+        return {
+            entry.period: entry.stars_gained
+            for entry in rows.scalars().all()
+        }
 
-    def _to_list_item(self, row, daily: int | None, weekly: int | None) -> RepositoryListItem:
+    def _to_list_item(
+        self,
+        row,
+        daily: int | None,
+        weekly: int | None,
+        monthly: int | None,
+    ) -> RepositoryListItem:
         return RepositoryListItem(
             id=row.id,
             owner=row.owner,
@@ -227,6 +203,7 @@ class RepositoryService:
             stars_count=row.stars_count,
             daily_stars=daily,
             weekly_stars=weekly,
+            monthly_stars=monthly,
             last_synced_at=_iso(row.last_synced_at),
             trend=[],
         )
@@ -289,7 +266,18 @@ def _parse_introduction(raw: str | None) -> RepositoryIntroduction | None:
             if intro:
                 return RepositoryIntroduction(
                     introduction=intro,
+                    highlights=[
+                        str(h).strip()
+                        for h in data.get("highlights", [])
+                        if isinstance(h, str) and h.strip()
+                    ],
+                    requirements=[
+                        str(r).strip()
+                        for r in data.get("requirements", [])
+                        if isinstance(r, str) and r.strip()
+                    ],
                     usage=str(data.get("usage", "")).strip(),
+                    audience=str(data.get("audience", "")).strip(),
                     domains=[
                         str(d).strip()
                         for d in data.get("domains", [])

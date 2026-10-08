@@ -11,8 +11,8 @@ from app.services.repository_service import RepositoryService
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
-CATEGORIES = ("AGENT", "SKILL", "MCP")
-SORTS = ("daily_stars", "weekly_stars", "total_stars")
+CATEGORIES = ("AGENT", "SKILL", "MCP", "PLUGIN")
+SORTS = ("daily_stars", "weekly_stars", "monthly_stars", "total_stars")
 
 
 @router.get("", response_model=RepositoryListResponse)
@@ -21,8 +21,11 @@ async def list_repositories(
     service: RepositoryService = Depends(get_repository_service),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    sort: str = Query(default="daily_stars", pattern="^(daily_stars|weekly_stars|total_stars)$"),
-    category: str | None = Query(default=None, pattern="^(AGENT|SKILL|MCP)$"),
+    sort: str = Query(
+        default="daily_stars",
+        pattern="^(daily_stars|weekly_stars|monthly_stars|total_stars)$",
+    ),
+    category: str | None = Query(default=None, pattern="^(AGENT|SKILL|MCP|PLUGIN)$"),
     language: str | None = Query(default=None, max_length=100),
     min_stars: int | None = Query(default=None, ge=0),
     q: str | None = Query(default=None, max_length=200),

@@ -91,7 +91,7 @@ def test_trigger_introductions_returns_202(
     )
     assert response.status_code == 202
     assert response.json() == {"status": "accepted"}
-    assert calls == [{"category": "SKILL", "limit": 5}]
+    assert calls == [{"category": "SKILL", "limit": 5, "order": None}]
 
 
 def test_trigger_introductions_rejects_invalid_category(

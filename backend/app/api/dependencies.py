@@ -16,7 +16,7 @@ def get_repository_service() -> RepositoryService:
 
 
 def get_stats_service() -> StatsService:
-    return StatsService(business_timezone=settings.business_timezone)
+    return StatsService()
 
 
 def verify_admin_key(value: str | None) -> bool:

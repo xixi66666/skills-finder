@@ -61,6 +61,14 @@ class RepositoryStore:
         )
         return list(result.scalars().all())
 
+    async def list_by_ids(self, ids: list[int]) -> list[Repository]:
+        if not ids:
+            return []
+        result = await self._session.execute(
+            select(Repository).where(Repository.id.in_(ids))
+        )
+        return list(result.scalars().all())
+
     async def list_without_introduction(
         self, *, category: str | None = None, limit: int = 5
     ) -> list[Repository]:

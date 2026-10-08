@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,27 +11,26 @@ from app.collector.classifier import classify_repository
 from app.collector.github_client import (
     GitHubAuthError,
     GitHubClient,
+    GitHubError,
     GitHubRateLimitError,
     GitHubRepository,
     GitHubRequestError,
+)
+from app.collector.trending import (
+    PERIODS,
+    TrendingRepository,
+    TrendingScrapeError,
+    TrendingScraper,
+    select_trending,
 )
 from app.core.config import settings
 from app.db.models import CollectionRun, Repository
 from app.repositories.collection_runs import CollectionRunStore
 from app.repositories.repositories import RepositoryStore
 from app.repositories.snapshots import SnapshotStore
+from app.repositories.trending import TrendingEntryValue, TrendingStore
 
 logger = logging.getLogger(__name__)
-
-DISCOVERY_QUERIES = (
-    "topic:ai-agent",
-    '"agent framework" in:name,description',
-    "topic:agentic-ai",
-    "topic:agent-skills",
-    '"agent skills" in:name,description',
-    "topic:mcp-server",
-    "topic:model-context-protocol",
-)
 
 STATUS_SUCCESS = "SUCCESS"
 STATUS_PARTIAL = "PARTIAL"
@@ -42,7 +41,7 @@ STATUS_FAILED = "FAILED"
 class CollectionResult:
     run_id: int
     status: str
-    query_count: int
+    period_count: int
     discovered_count: int
     updated_count: int
     failed_count: int
@@ -54,18 +53,22 @@ class CollectionResult:
 
 @dataclass
 class CollectionService:
+    scraper: TrendingScraper
     github_client: GitHubClient
     repository_store: RepositoryStore
     snapshot_store: SnapshotStore
+    trending_store: TrendingStore
     run_store: CollectionRunStore
     session: AsyncSession
     business_timezone: str = "Asia/Shanghai"
-    min_stars: int = 100
+    top_n: int = 10
+    ai_keywords: str = ""
     trigger_type: str = "scheduled"
-    discovered: list[GitHubRepository] = field(default_factory=list)
+    discovered: list[TrendingRepository] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._timezone = ZoneInfo(self.business_timezone)
+        self._selected: dict[str, list[TrendingRepository]] = {}
 
     @property
     def _business_date(self) -> date:
@@ -76,21 +79,21 @@ class CollectionService:
         result = CollectionResult(
             run_id=run.id,
             status=STATUS_SUCCESS,
-            query_count=len(DISCOVERY_QUERIES),
+            period_count=len(PERIODS),
             discovered_count=0,
             updated_count=0,
             failed_count=0,
         )
         try:
-            await self._discover(run, result)
-            await self._persist_discovered(result)
-            await self._refresh_available(result)
-            result.status = STATUS_SUCCESS
+            await self._collect_periods(result)
+            if len(self._selected) < len(PERIODS):
+                result.status = STATUS_PARTIAL
+            await self._persist_selected(result)
             if result.failed_count > 0:
                 result.status = STATUS_PARTIAL
             await self._finish(run, result, status=result.status)
             return result
-        except (GitHubAuthError, GitHubRateLimitError) as exc:
+        except (GitHubAuthError, GitHubRateLimitError, TrendingScrapeError) as exc:
             result.status = STATUS_FAILED
             result.error_summary = _error_summary(exc)
             await self._finish(run, result, status=STATUS_FAILED)
@@ -101,111 +104,112 @@ class CollectionService:
             await self._finish(run, result, status=STATUS_FAILED)
             raise
 
-    async def _discover(self, run: CollectionRun, result: CollectionResult) -> None:
-        for query in DISCOVERY_QUERIES:
-            repos = await self.github_client.search_repositories(query, self.min_stars)
-            self.discovered.extend(repos)
-        result.discovered_count = len(self.discovered)
+    async def _collect_periods(self, result: CollectionResult) -> None:
+        failures: list[str] = []
+        for period in PERIODS:
+            try:
+                repositories = await self.scraper.fetch(period)
+            except TrendingScrapeError as exc:
+                failures.append(f"{period}: {exc}")
+                logger.warning("trending period %s failed: %s", period, exc)
+                continue
+            result.discovered_count += len(repositories)
+            self.discovered.extend(repositories)
+            self._selected[period] = select_trending(
+                repositories, self.ai_keywords, self.top_n
+            )
+        if not self._selected:
+            raise TrendingScrapeError(
+                "all trending periods failed: " + "; ".join(failures)
+            )
+        if failures:
+            result.error_summary = "; ".join(failures)
+
+    async def _persist_selected(self, result: CollectionResult) -> None:
+        unique: dict[str, TrendingRepository] = {}
+        for repositories in self._selected.values():
+            for repository in repositories:
+                unique.setdefault(repository.full_name, repository)
+
+        stored: dict[str, Repository] = {}
+        intro_pending: list[Repository] = []
+        fetched_at = datetime.now(UTC)
+
+        for full_name in unique:
+            try:
+                repo = await self.github_client.get_repository(full_name)
+            except GitHubRequestError as exc:
+                result.failed_count += 1
+                logger.warning("failed to fetch %s: %s", full_name, exc)
+                continue
+            if repo is None or not self._eligible(repo):
+                result.failed_count += 1
+                continue
+
+            classification = classify_repository(
+                name=repo.name,
+                description=repo.description or "",
+                topics=repo.topics,
+            )
+            updated = await self.repository_store.upsert(repo, classification)
+            await self.snapshot_store.upsert_daily(
+                repository_id=updated.id,
+                snapshot_date=self._business_date,
+                stars_count=repo.stars_count,
+            )
+            stored[full_name] = updated
+            result.updated_count += 1
+            if settings.intro_enabled and updated.introduction is None:
+                intro_pending.append(updated)
+
+        for period, repositories in self._selected.items():
+            entries = [
+                TrendingEntryValue(
+                    repository_id=stored[repository.full_name].id,
+                    rank_position=rank,
+                    stars_gained=repository.stars_gained,
+                    stars_total=repository.stars_total or stored[repository.full_name].stars_count,
+                )
+                for rank, repository in enumerate(repositories, start=1)
+                if repository.full_name in stored
+            ]
+            await self.trending_store.replace_period(period, entries, fetched_at)
+
+        await self._generate_introductions(intro_pending)
+        await self._record_rate_limit(result)
+        await self.session.commit()
+
+    async def _record_rate_limit(self, result: CollectionResult) -> None:
         rate_limit = await self.github_client.get_rate_limit()
         result.rate_limit_remaining = rate_limit.remaining
         result.rate_limit_reset_at = rate_limit.reset_at
 
-    async def _persist_discovered(self, result: CollectionResult) -> None:
-        seen_ids: set[int] = set()
-        intro_pending: list[Repository] = []
-        for repo in self.discovered:
-            if repo.github_id in seen_ids:
-                continue
-            if not self._eligible(repo):
-                continue
-            seen_ids.add(repo.github_id)
-            classification = classify_repository(
-                name=repo.name,
-                description=repo.description or "",
-                topics=repo.topics,
-            )
-            updated = await self.repository_store.upsert(repo, classification)
-            result.updated_count += 1
-            await self.snapshot_store.upsert_daily(
-                repository_id=updated.id,
-                snapshot_date=self._business_date,
-                stars_count=repo.stars_count,
-            )
-            if settings.intro_enabled and updated.introduction is None:
-                intro_pending.append(updated)
-        await self._generate_introductions(intro_pending)
-        await self.session.commit()
-
-    async def _refresh_available(self, result: CollectionResult) -> None:
-        available = await self.repository_store.list_available()
-        discovered_ids = {
-            repository.github_id
-            for repository in self.discovered
-            if self._eligible(repository)
-        }
-        unavailable: list[int] = []
-        intro_pending: list[Repository] = []
-        for repository in available:
-            if repository.github_id in discovered_ids:
-                continue
-            try:
-                repo = await self.github_client.get_repository(repository.full_name)
-            except GitHubRequestError:
-                result.failed_count += 1
-                continue
-            except (GitHubAuthError, GitHubRateLimitError):
-                raise
-            if repo is None:
-                unavailable.append(repository.github_id)
-                continue
-            classification = classify_repository(
-                name=repo.name,
-                description=repo.description or "",
-                topics=repo.topics,
-            )
-            updated = await self.repository_store.upsert(repo, classification)
-            await self.snapshot_store.upsert_daily(
-                repository_id=updated.id,
-                snapshot_date=self._business_date,
-                stars_count=repo.stars_count,
-            )
-            result.updated_count += 1
-            if settings.intro_enabled and updated.introduction is None:
-                intro_pending.append(updated)
-        await self._generate_introductions(intro_pending)
-        await self.repository_store.mark_unavailable(unavailable)
-        await self.session.commit()
-
     async def _generate_introductions(self, repos: list[Repository]) -> None:
         if not repos:
             return
-        import asyncio
-
         from app.services.introduction_service import (
-            IntroductionGenerationError,
             brief_from_repository,
-            generate_introductions,
+            generate_introductions_resilient,
         )
 
         batch_size = settings.intro_batch_size
         for start in range(0, len(repos), batch_size):
             batch = repos[start : start + batch_size]
-            try:
-                texts = await asyncio.to_thread(
-                    generate_introductions,
-                    [brief_from_repository(repo) for repo in batch],
-                )
-            except IntroductionGenerationError as exc:
-                logger.warning("introduction generation failed: %s", exc)
-                continue
+            briefs = []
+            for repo in batch:
+                try:
+                    readme = await self.github_client.get_readme(repo.full_name)
+                except GitHubError as exc:
+                    logger.warning("readme fetch failed for %s: %s", repo.full_name, exc)
+                    readme = None
+                briefs.append(brief_from_repository(repo, readme=readme))
+            texts = await generate_introductions_resilient(briefs)
             for repo, text in zip(batch, texts):
                 if text:
                     await self.repository_store.update_introduction(repo.github_id, text)
 
     def _eligible(self, repo: GitHubRepository) -> bool:
-        if repo.archived or repo.disabled or repo.fork:
-            return False
-        return repo.stars_count >= self.min_stars
+        return not (repo.archived or repo.disabled or repo.fork)
 
     async def _finish(
         self,
@@ -217,7 +221,7 @@ class CollectionService:
         await self.run_store.finish(
             run,
             status=status,
-            query_count=result.query_count,
+            query_count=result.period_count,
             discovered_count=result.discovered_count,
             updated_count=result.updated_count,
             failed_count=result.failed_count,

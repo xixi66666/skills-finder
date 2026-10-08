@@ -3,9 +3,10 @@
     <header class="page-header">
       <div>
         <p class="eyebrow">MULTI-SOURCE RESEARCH</p>
-        <h1>近 30 天研究</h1>
+        <h1>近 30 天最热</h1>
         <p class="page-description">
-          聚合社区讨论、开发者动态、预测市场与网页信息，查看最近一个月人们真正关注的内容。
+          聚合 GitHub、Reddit、X、YouTube、Hacker News 等来源，按社区互动量呈现 Agent / Skill
+          方向最近一个月最受关注的 Top 20。
         </p>
       </div>
       <div class="engine-state" :class="`state-${engineStatus}`" role="status">
@@ -14,117 +15,110 @@
       </div>
     </header>
 
-    <section class="research-panel" aria-labelledby="research-form-title">
-      <h2 id="research-form-title">研究主题</h2>
-      <form class="query-form" @submit.prevent="onSubmit">
-        <label class="sr-only" for="research-query">研究主题</label>
-        <div class="query-control">
-          <Search :size="18" class="query-icon" aria-hidden="true" />
-          <input
-            id="research-query"
-            v-model="query"
-            type="search"
-            required
-            maxlength="200"
-            autocomplete="off"
-            placeholder="例如：AI 编程助手最近有哪些真实反馈？"
-            :disabled="loading"
-          />
-        </div>
-        <button type="submit" :disabled="loading || !query.trim()">
-          <LoaderCircle v-if="loading" :size="18" class="spinner" aria-hidden="true" />
-          <Search v-else :size="18" aria-hidden="true" />
-          {{ loading ? '正在研究…' : '研究最近 30 天' }}
+    <div class="toolbar">
+      <div class="direction-tabs" role="tablist" aria-label="方向">
+        <button
+          v-for="tab in DIRECTION_TABS"
+          :key="tab.key"
+          type="button"
+          role="tab"
+          class="direction-tab"
+          :class="{ active: direction === tab.key }"
+          :aria-selected="direction === tab.key"
+          :data-testid="`direction-${tab.key}`"
+          @click="onDirectionChange(tab.key)"
+        >
+          {{ tab.label }}
         </button>
-      </form>
-
-      <div v-if="availableSources.length" class="source-list" aria-label="可用数据来源">
-        <span class="source-list-label">当前可用</span>
-        <span v-for="source in availableSources" :key="source" class="source-chip">
-          {{ sourceLabel(source) }}
+      </div>
+      <div class="toolbar-meta">
+        <span v-if="fetchedAt" class="fetched-at">
+          <Clock :size="14" aria-hidden="true" />
+          最近更新：{{ formatDateTime(fetchedAt) }}
         </span>
+        <button
+          type="button"
+          class="refresh-button"
+          data-testid="refresh-ranking"
+          :disabled="refreshing"
+          @click="onRefresh"
+        >
+          <LoaderCircle v-if="refreshing" :size="16" class="spinner" aria-hidden="true" />
+          <RefreshCw v-else :size="16" aria-hidden="true" />
+          {{ refreshing ? '正在刷新…' : '刷新榜单' }}
+        </button>
       </div>
-      <p v-if="engineMessage" class="setup-message">{{ engineMessage }}</p>
-    </section>
+    </div>
 
-    <div v-if="error" class="notice notice-error" role="alert">
+    <p v-if="engineMessage" class="setup-message">{{ engineMessage }}</p>
+
+    <div v-if="refreshing" class="notice" role="status">
+      <LoaderCircle :size="18" class="spinner" aria-hidden="true" />
+      <span>正在运行 last30days 多源研究，完整结果可能需要几分钟，请耐心等待。</span>
+    </div>
+
+    <div v-if="refreshError" class="notice notice-error" role="alert">
       <CircleAlert :size="18" aria-hidden="true" />
-      <span>{{ error }}</span>
+      <span>{{ refreshError }}</span>
     </div>
 
-    <div v-if="loading" class="loading-state" role="status">
-      <LoaderCircle :size="28" class="spinner" aria-hidden="true" />
-      <div>
-        <strong>正在运行真实的 last30days 多源研究</strong>
-        <p>不同来源响应时间不同，完整结果可能需要几分钟。</p>
-      </div>
-    </div>
+    <StatePanel v-if="initialLoading" variant="skeleton" title="加载中" />
 
-    <template v-else-if="hasRun">
-      <div class="result-summary">
-        <div>
-          <p class="eyebrow">RESEARCH RESULT</p>
-          <h2>{{ resultQuery }}</h2>
-        </div>
-        <div class="summary-meta">
-          <span>{{ items.length }} 条结果</span>
-          <span>{{ clusters.length }} 个主题</span>
-          <span v-if="fetchedAt"><Clock :size="14" aria-hidden="true" />{{ formatDate(fetchedAt) }}</span>
-        </div>
-      </div>
+    <StatePanel
+      v-else-if="loadError"
+      variant="error"
+      title="加载失败"
+      message="无法获取榜单数据，请检查网络后重试。"
+      @action="loadRanking"
+    />
 
-      <div v-if="sourceStatus === 'partial' || message" class="notice" role="status">
+    <StatePanel
+      v-else-if="items.length === 0"
+      variant="empty"
+      title="还没有榜单数据"
+      :message="message || '点击“刷新榜单”生成该方向的近 30 天 Top 20。'"
+      action-label="立即刷新"
+      @action="onRefresh"
+    />
+
+    <template v-else>
+      <div v-if="message" class="notice" role="status">
         <CircleAlert :size="18" aria-hidden="true" />
-        <span>{{ message || '部分来源暂时不可用，以下是已获取的结果。' }}</span>
+        <span>{{ message }}</span>
       </div>
 
-      <section v-if="clusters.length" class="clusters-section" aria-labelledby="clusters-title">
-        <h2 id="clusters-title">讨论焦点</h2>
-        <div class="cluster-grid">
-          <article v-for="cluster in clusters" :key="cluster.title" class="cluster-card">
-            <h3>{{ cluster.title }}</h3>
-            <p>{{ cluster.summary }}</p>
-            <div class="cluster-footer">
-              <span>{{ cluster.sources.map(sourceLabel).join(' · ') }}</span>
-              <span>{{ formatNumber(cluster.engagement_total) }} 互动</span>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section v-if="items.length" class="results-section" aria-labelledby="results-title">
-        <h2 id="results-title">原始信号与摘要</h2>
-        <ol class="results-list">
-          <li v-for="item in items" :key="item.candidate_id" class="result-item">
-            <article>
-              <div class="result-source-row">
+      <ol class="ranking-list">
+        <li v-for="(item, index) in items" :key="item.candidate_id" class="ranking-item">
+          <article class="ranking-card">
+            <span class="rank" aria-hidden="true">{{ index + 1 }}</span>
+            <div class="ranking-main">
+              <div class="ranking-title-row">
+                <a
+                  :href="item.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="ranking-title"
+                >
+                  {{ item.title }}
+                  <ExternalLink :size="15" aria-hidden="true" />
+                </a>
                 <span class="source-chip">{{ sourceLabel(item.source) }}</span>
+              </div>
+              <p v-if="item.summary" class="ranking-summary">{{ item.summary }}</p>
+              <div class="ranking-meta">
                 <span v-if="item.published_at">{{ formatDate(item.published_at) }}</span>
                 <span v-if="item.relevance_score != null">
                   相关度 {{ Math.round(item.relevance_score * 100) }}%
                 </span>
               </div>
-              <h3>
-                <a :href="item.url" target="_blank" rel="noopener noreferrer">
-                  {{ item.title }}
-                  <ExternalLink :size="15" aria-hidden="true" />
-                </a>
-              </h3>
-              <p v-if="item.summary" class="result-summary-text">{{ item.summary }}</p>
-              <div v-if="engagementTotal(item.engagement)" class="engagement">
-                <MessageCircle :size="15" aria-hidden="true" />
-                {{ formatNumber(engagementTotal(item.engagement)) }} 互动
-              </div>
-            </article>
-          </li>
-        </ol>
-      </section>
-
-      <div v-else class="empty-state">
-        <SearchX :size="32" aria-hidden="true" />
-        <h2>最近 30 天没有找到相关结果</h2>
-        <p>尝试更换更具体的主题或产品名称。</p>
-      </div>
+            </div>
+            <div class="ranking-engagement">
+              <MessageCircle :size="15" aria-hidden="true" />
+              <span>{{ formatNumber(engagementTotal(item.engagement)) }} 互动</span>
+            </div>
+          </article>
+        </li>
+      </ol>
     </template>
   </main>
 </template>
@@ -137,17 +131,22 @@ import {
   ExternalLink,
   LoaderCircle,
   MessageCircle,
-  Search,
-  SearchX,
+  RefreshCw,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
-import { fetchLast30daysStatus, postLast30days } from '@/api/last30days'
+import {
+  fetchLast30daysRankings,
+  fetchLast30daysStatus,
+  refreshLast30daysRankings,
+} from '@/api/last30days'
 import type {
-  Last30DaysCluster,
+  Last30DaysDirection,
   Last30DaysItem,
+  Last30DaysRankingResponse,
   Last30DaysStatus,
 } from '@/api/last30days'
+import StatePanel from '@/components/StatePanel.vue'
 
 const SOURCE_LABELS: Record<string, string> = {
   github: 'GitHub',
@@ -160,19 +159,22 @@ const SOURCE_LABELS: Record<string, string> = {
   youtube: 'YouTube',
 }
 
-const query = ref('')
-const loading = ref(false)
-const error = ref('')
+const DIRECTION_TABS: { key: Last30DaysDirection; label: string }[] = [
+  { key: 'agent', label: 'Agent' },
+  { key: 'skill', label: 'Skill' },
+]
+
+const direction = ref<Last30DaysDirection>('agent')
 const engineStatus = ref<Last30DaysStatus>('working')
 const engineMessage = ref('')
-const sourceStatus = ref<Last30DaysStatus>('working')
-const message = ref('')
-const availableSources = ref<string[]>([])
 const items = ref<Last30DaysItem[]>([])
-const clusters = ref<Last30DaysCluster[]>([])
-const resultQuery = ref('')
+const status = ref<Last30DaysStatus>('no-results')
+const message = ref('')
 const fetchedAt = ref('')
-const hasRun = ref(false)
+const initialLoading = ref(true)
+const loadError = ref(false)
+const refreshing = ref(false)
+const refreshError = ref('')
 
 const engineStatusLabel = computed(() => {
   if (engineStatus.value === 'unconfigured') return '需要配置'
@@ -185,41 +187,55 @@ onMounted(async () => {
   try {
     const response = await fetchLast30daysStatus()
     engineStatus.value = response.status
-    availableSources.value = response.sources
     engineMessage.value = response.message ?? ''
   } catch {
     engineStatus.value = 'error'
     engineMessage.value = '暂时无法读取 last30days 引擎状态。'
   }
+  await loadRanking()
 })
 
-async function onSubmit(): Promise<void> {
-  const cleanQuery = query.value.trim()
-  if (!cleanQuery) return
-  loading.value = true
-  error.value = ''
-  message.value = ''
-  hasRun.value = false
-  items.value = []
-  clusters.value = []
+function applyRanking(data: Last30DaysRankingResponse): void {
+  status.value = data.status
+  message.value = data.message ?? ''
+  items.value = data.items
+  fetchedAt.value = data.fetched_at
+}
+
+async function loadRanking(): Promise<void> {
+  initialLoading.value = true
+  loadError.value = false
   try {
-    const response = await postLast30days(cleanQuery)
-    sourceStatus.value = response.status
-    message.value = response.message ?? ''
-    items.value = response.items
-    clusters.value = response.clusters
-    resultQuery.value = response.query || cleanQuery
-    fetchedAt.value = response.fetched_at
-    availableSources.value = response.sources.length ? response.sources : availableSources.value
-    hasRun.value = true
-    if (response.status === 'error' || response.status === 'unconfigured') {
-      error.value = response.message || '研究任务没有成功完成。'
+    const data = await fetchLast30daysRankings(direction.value)
+    applyRanking(data)
+  } catch {
+    loadError.value = true
+  } finally {
+    initialLoading.value = false
+  }
+}
+
+function onDirectionChange(next: Last30DaysDirection): void {
+  if (direction.value === next || refreshing.value) return
+  direction.value = next
+  void loadRanking()
+}
+
+async function onRefresh(): Promise<void> {
+  if (refreshing.value) return
+  refreshing.value = true
+  refreshError.value = ''
+  try {
+    const data = await refreshLast30daysRankings(direction.value)
+    if (data.status === 'error' || data.status === 'unconfigured' || data.status === 'skipped') {
+      refreshError.value = data.message || '刷新失败，请稍后重试。'
+    } else {
+      applyRanking(data)
     }
   } catch (cause: unknown) {
-    error.value = cause instanceof Error ? cause.message : '研究请求失败，请稍后重试。'
-    sourceStatus.value = 'error'
+    refreshError.value = cause instanceof Error ? cause.message : '刷新请求失败，请稍后重试。'
   } finally {
-    loading.value = false
+    refreshing.value = false
   }
 }
 
@@ -243,6 +259,13 @@ function formatDate(value: string): string {
     ? value
     : new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(date)
 }
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
 </script>
 
 <style scoped>
@@ -253,22 +276,17 @@ function formatDate(value: string): string {
   color: var(--color-text-primary);
 }
 
-.page-header,
-.result-summary {
+.page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-6);
 }
 
-.page-header h1,
-.result-summary h2 {
-  margin: var(--spacing-1) 0 var(--spacing-2);
-  line-height: 1.2;
-}
-
 .page-header h1 {
+  margin: var(--spacing-1) 0 var(--spacing-2);
   font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.2;
 }
 
 .eyebrow {
@@ -305,92 +323,172 @@ function formatDate(value: string): string {
   color: var(--color-danger);
 }
 
-.research-panel {
-  margin-top: 32px;
-  padding: var(--spacing-6);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-bg);
-  box-shadow: 0 8px 24px var(--color-shadow);
-}
-
-.research-panel h2,
-.clusters-section > h2,
-.results-section > h2 {
-  margin: 0 0 var(--spacing-3);
-  font-size: 16px;
-}
-
-.query-form {
+.toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-top: 32px;
+}
+
+.direction-tabs {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  overflow: hidden;
+  width: fit-content;
+}
+
+.direction-tab {
+  padding: 6px 14px;
+  border: 0;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.direction-tab:hover {
+  background-color: var(--color-canvas);
+}
+
+.direction-tab.active {
+  background-color: var(--color-accent-emphasis);
+  color: #ffffff;
+}
+
+.toolbar-meta {
+  display: flex;
+  align-items: center;
   gap: var(--spacing-3);
 }
 
-.query-control {
-  position: relative;
-  flex: 1;
-}
-
-.query-icon {
-  position: absolute;
-  top: 50%;
-  left: 14px;
-  transform: translateY(-50%);
+.fetched-at {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
   color: var(--color-text-secondary);
+  font-size: 12px;
 }
 
-.query-control input {
-  width: 100%;
-  min-height: 46px;
-  padding: 0 14px 0 42px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-button);
-  background: var(--color-canvas);
-  color: var(--color-text-primary);
-  font: inherit;
-}
-
-.query-control input:focus {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 1px;
-}
-
-.query-form button {
+.refresh-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-2);
-  min-height: 46px;
+  min-height: 36px;
   padding: 0 var(--spacing-4);
   border: 1px solid var(--color-accent-emphasis);
   border-radius: var(--radius-button);
   background: var(--color-accent-emphasis);
   color: var(--color-header-text);
   font: inherit;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
-.query-form button:disabled {
+.refresh-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.source-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-2);
-  margin-top: var(--spacing-4);
+.setup-message {
+  margin: var(--spacing-3) 0 0;
+  color: var(--color-danger);
+  font-size: 13px;
 }
 
-.source-list-label,
-.setup-message,
-.summary-meta,
-.result-source-row,
-.engagement {
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
   color: var(--color-text-secondary);
   font-size: 13px;
+}
+
+.notice-error {
+  color: var(--color-danger);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: var(--spacing-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ranking-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background-color: var(--color-bg);
+}
+
+.ranking-card:hover {
+  border-color: var(--color-accent);
+}
+
+.rank {
+  flex: 0 0 auto;
+  min-width: 32px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ranking-item:nth-child(-n + 3) .rank {
+  color: var(--color-accent);
+}
+
+.ranking-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ranking-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.ranking-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ranking-title:hover {
+  color: var(--color-accent);
 }
 
 .source-chip {
@@ -406,189 +504,37 @@ function formatDate(value: string): string {
   font-weight: 600;
 }
 
-.setup-message {
-  margin: var(--spacing-3) 0 0;
-  color: var(--color-danger);
-}
-
-.notice,
-.loading-state {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-3);
-  margin-top: var(--spacing-4);
-  padding: var(--spacing-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-canvas);
-}
-
-.notice-error {
-  color: var(--color-danger);
-}
-
-.loading-state strong {
-  display: block;
-  margin-bottom: var(--spacing-1);
-}
-
-.loading-state p {
-  margin: 0;
+.ranking-summary {
+  margin: var(--spacing-1) 0 0;
   color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+  word-break: break-word;
 }
 
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.result-summary {
-  margin-top: 40px;
-  padding-bottom: var(--spacing-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.summary-meta {
+.ranking-meta {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--spacing-3);
-}
-
-.summary-meta span {
-  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-1);
-}
-
-.clusters-section,
-.results-section {
-  margin-top: 32px;
-}
-
-.cluster-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: var(--spacing-3);
-}
-
-.cluster-card {
-  padding: var(--spacing-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-bg);
-}
-
-.cluster-card h3 {
-  margin: 0 0 var(--spacing-2);
-  font-size: 15px;
-}
-
-.cluster-card p {
-  margin: 0;
+  margin-top: var(--spacing-2);
   color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.cluster-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-2);
-  margin-top: var(--spacing-3);
-  color: var(--color-text-muted);
   font-size: 12px;
 }
 
-.results-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.result-item {
-  padding: var(--spacing-4) 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.result-item:first-child {
-  border-top: 0;
-}
-
-.result-source-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-3);
-}
-
-.result-item h3 {
-  margin: var(--spacing-2) 0;
-  font-size: 18px;
-}
-
-.result-item h3 a {
+.ranking-engagement {
   display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  color: var(--color-accent);
-  text-decoration: none;
-}
-
-.result-item h3 a:hover {
-  text-decoration: underline;
-}
-
-.result-summary-text {
-  max-width: 800px;
-  margin: 0;
-  color: var(--color-text-secondary);
-  line-height: 1.65;
-}
-
-.engagement {
-  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--spacing-1);
-  margin-top: var(--spacing-2);
-}
-
-.empty-state {
-  display: grid;
-  justify-items: center;
-  margin-top: 40px;
-  padding: 48px var(--spacing-4);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-card);
   color: var(--color-text-secondary);
-  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.empty-state h2 {
-  margin: var(--spacing-3) 0 var(--spacing-1);
-  color: var(--color-text-primary);
-  font-size: 18px;
-}
-
-.empty-state p {
-  margin: 0;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.state-panel {
+  margin-top: var(--spacing-4);
 }
 
 @media (max-width: 720px) {
@@ -598,24 +544,21 @@ function formatDate(value: string): string {
   }
 
   .page-header,
-  .result-summary,
-  .query-form {
+  .toolbar {
     flex-direction: column;
-  }
-
-  .engine-state,
-  .query-control,
-  .query-form button {
-    width: 100%;
+    align-items: stretch;
   }
 
   .engine-state {
-    box-sizing: border-box;
     justify-content: center;
   }
 
-  .summary-meta {
-    justify-content: flex-start;
+  .toolbar-meta {
+    justify-content: space-between;
+  }
+
+  .ranking-card {
+    flex-wrap: wrap;
   }
 }
 </style>

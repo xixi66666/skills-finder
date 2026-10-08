@@ -14,6 +14,8 @@ StatusType = Literal[
     "unconfigured",
 ]
 
+DirectionType = Literal["agent", "skill"]
+
 
 class Last30DaysRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
@@ -61,4 +63,19 @@ class Last30DaysResponse(BaseModel):
 class Last30DaysStatusResponse(BaseModel):
     status: StatusType
     sources: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
+class Last30DaysRefreshRequest(BaseModel):
+    direction: DirectionType
+
+
+class Last30DaysRankingResponse(BaseModel):
+    direction: DirectionType
+    status: StatusType
+    items: list[Last30DaysItem] = Field(default_factory=list)
+    clusters: list[Last30DaysCluster] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    source_status: dict[str, Any] = Field(default_factory=dict)
+    fetched_at: str = ""
     message: str | None = None

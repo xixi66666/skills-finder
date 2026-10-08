@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { LoaderCircle, RefreshCw } from 'lucide-vue-next'
 import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import FilterSidebar from '@/components/FilterSidebar.vue'
 import RepositoryListItem from '@/components/RepositoryListItem.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import { triggerCollectionRefresh } from '@/api/collections'
+import { fromAxiosError } from '@/api/client'
 import { fetchLanguages, fetchRepositories, fetchStats } from '@/api/repositories'
 import type { Category, LanguageStat, RepositoryListResponse, RepositoryQuery, SortKey } from '@/types/api'
 
@@ -122,11 +125,80 @@ watch(
 onMounted(async () => {
   applyRouteFilters()
   void loadRepositories()
+  await loadHeaderData()
+  document.addEventListener('keydown', onKeydown)
+})
+
+async function loadHeaderData() {
   const [langs, statsData] = await Promise.all([fetchLanguages(), fetchStats()])
   languages.value = langs
   stats.value = statsData
-  document.addEventListener('keydown', onKeydown)
-})
+  lastCollectionAt.value = statsData.last_successful_collection_at
+}
+
+const POLL_INTERVAL_MS = 5000
+const POLL_TIMEOUT_MS = 15 * 60 * 1000
+
+const refreshing = ref(false)
+const refreshNotice = ref('')
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollElapsedMs = 0
+let pollSawRunning = false
+let pollBaseline: string | null = null
+
+async function onRefreshData() {
+  if (refreshing.value) return
+  refreshNotice.value = ''
+  try {
+    pollBaseline = lastCollectionAt.value
+    await triggerCollectionRefresh()
+  } catch (cause: unknown) {
+    refreshNotice.value = cause instanceof Error ? fromAxiosError(cause).userMessage : '触发采集失败，请稍后重试。'
+    return
+  }
+  refreshing.value = true
+  pollSawRunning = false
+  pollElapsedMs = 0
+  refreshNotice.value = '采集中，通常需要几分钟，完成后自动刷新榜单。'
+  pollTimer = setInterval(() => {
+    void pollCollectionStatus()
+  }, POLL_INTERVAL_MS)
+}
+
+async function pollCollectionStatus() {
+  pollElapsedMs += POLL_INTERVAL_MS
+  try {
+    const statsData = await fetchStats()
+    if (statsData.last_run_status === 'RUNNING') pollSawRunning = true
+    const succeededAt = statsData.last_successful_collection_at
+    if (succeededAt && succeededAt !== pollBaseline) {
+      finishRefresh('')
+      return
+    }
+    if (pollSawRunning && statsData.last_run_status === 'FAILED') {
+      finishRefresh('采集执行失败，请稍后重试。')
+      return
+    }
+  } catch {
+    // 轮询中的瞬时网络错误不中断等待
+  }
+  if (pollElapsedMs >= POLL_TIMEOUT_MS) {
+    finishRefresh('采集超时，请稍后手动刷新页面查看结果。')
+  }
+}
+
+function finishRefresh(notice: string) {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  refreshing.value = false
+  refreshNotice.value = notice
+  if (!notice) {
+    void loadRepositories()
+    void loadHeaderData()
+  }
+}
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && filtersVisible.value) {
@@ -138,6 +210,10 @@ function onKeydown(event: KeyboardEvent) {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 </script>
 
@@ -174,12 +250,27 @@ onUnmounted(() => {
           <span v-if="lastCollectionAt" class="header-muted">
             最近更新：{{ lastCollectionAt }}
           </span>
+          <button
+            type="button"
+            class="refresh-data-button"
+            data-testid="refresh-data"
+            :disabled="refreshing"
+            @click="onRefreshData"
+          >
+            <LoaderCircle v-if="refreshing" :size="14" class="spinner" aria-hidden="true" />
+            <RefreshCw v-else :size="14" aria-hidden="true" />
+            {{ refreshing ? '采集中…' : '刷新数据' }}
+          </button>
+        </div>
+        <div v-if="refreshNotice" class="refresh-notice" role="status" data-testid="refresh-notice">
+          {{ refreshNotice }}
         </div>
         <div class="sort-tabs" role="tablist" aria-label="排序方式">
           <button
             v-for="tab in [
               { key: 'daily_stars', label: '今日增长' },
               { key: 'weekly_stars', label: '7 日增长' },
+              { key: 'monthly_stars', label: '30 日增长' },
               { key: 'total_stars', label: '总 Star' },
             ]"
             :key="tab.key"
@@ -335,6 +426,48 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 400;
   color: var(--color-text-secondary);
+}
+
+.refresh-data-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  background-color: transparent;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.refresh-data-button:hover:not(:disabled) {
+  background-color: var(--color-canvas);
+}
+
+.refresh-data-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spinner {
+  animation: refresh-spin 1s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.refresh-notice {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background-color: var(--color-canvas);
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 
 .sort-tabs {

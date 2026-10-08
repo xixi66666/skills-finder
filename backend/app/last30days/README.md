@@ -2,10 +2,14 @@
 
 This module adapts the user-level `last30days` skill to Skill Finder. It runs the installed engine as a subprocess and returns its agent JSON profile instead of maintaining a separate Hacker News-only implementation.
 
+The primary use case is the **近 30 天最热** page: per-direction (`agent` / `skill`) Top 20 rankings of the hottest discussions and projects over the last 30 days. Refreshing a direction runs the engine with a fixed query (`AI agents` / `AI agent skills`), ranks results by total engagement, and caches the Top 20 in the `last30days_reports` table so page loads are instant.
+
 ## API
 
 - `GET /api/v1/last30days/status` checks the installed skill/runtime and lists currently available sources.
-- `POST /api/v1/last30days` runs research for a required topic.
+- `GET /api/v1/last30days/rankings?direction=agent|skill` returns the cached ranking for a direction (empty state when never refreshed).
+- `POST /api/v1/last30days/rankings/refresh` with `{ "direction": "agent" }` synchronously reruns the engine and updates the cached ranking. This can take several minutes.
+- `POST /api/v1/last30days` runs research for an arbitrary topic (kept for debugging; not used by the UI).
 
 ```json
 {
@@ -14,7 +18,7 @@ This module adapts the user-level `last30days` skill to Skill Finder. It runs th
 }
 ```
 
-The response contains `clusters`, individual `items`, `sources`, and per-source status. The UI is available from the primary navigation as **近 30 天研究**.
+Ranking responses contain `items` (Top 20), `clusters`, `sources`, per-source status, and `fetched_at`. The UI is available from the primary navigation as **近 30 天最热**.
 
 ## Runtime discovery
 
