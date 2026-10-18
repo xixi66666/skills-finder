@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ExternalLink } from 'lucide-vue-next'
+import { computed } from 'vue'
 
 import SparklineChart from '@/components/SparklineChart.vue'
 import type { RepositoryListItem as Repo } from '@/types/api'
+import { handleCoverError, repoFallbackCoverUrl, repoOgCoverUrl } from '@/utils/covers'
 
-defineProps<{
+const props = defineProps<{
   repo: Repo
+  rank?: number
 }>()
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -22,6 +25,17 @@ const LANGUAGE_COLORS: Record<string, string> = {
   Go: 'var(--lang-go)',
   Rust: 'var(--lang-rust)',
 }
+
+const coverUrl = computed(() => repoOgCoverUrl(props.repo.owner, props.repo.name))
+const coverFallback = computed(() => repoFallbackCoverUrl(props.repo.owner, props.repo.name))
+
+function onCoverError(event: Event) {
+  handleCoverError(event, coverFallback.value)
+}
+
+const rankLabel = computed(() =>
+  props.rank == null ? '' : String(props.rank).padStart(2, '0'),
+)
 
 function languageColor(language: string | null): string {
   if (!language) return 'var(--lang-default)'
@@ -40,22 +54,30 @@ function formatSigned(value: number): string {
   return value > 0 ? `+${value.toLocaleString('en-US')}` : value.toLocaleString('en-US')
 }
 
+function growthClass(value: number | null): string {
+  if (value == null) return 'is-flat'
+  return value > 0 ? 'is-up' : value < 0 ? 'is-down' : 'is-flat'
+}
+
 function categoryColor(category: string): string {
   return CATEGORY_COLORS[category] ?? 'var(--color-text-secondary)'
 }
 </script>
 
 <template>
-  <article class="repo-item" data-testid="repo-item">
-    <div class="repo-main">
-      <div class="repo-title-row">
-        <RouterLink
-          :to="`/repositories/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`"
-          class="repo-name"
-          :data-testid="`repo-link-${repo.name}`"
-        >
-          {{ repo.owner }}/{{ repo.name }}
-        </RouterLink>
+  <article class="repo-card" data-testid="repo-item">
+    <div class="repo-media">
+      <img
+        class="repo-media-img"
+        :src="coverUrl"
+        alt=""
+        loading="lazy"
+        decoding="async"
+        @error="onCoverError"
+      />
+      <div class="repo-media-shade" aria-hidden="true"></div>
+      <div class="repo-media-top">
+        <span v-if="rankLabel" class="repo-rank">{{ rankLabel }}</span>
         <span
           v-for="cat in repo.categories"
           :key="cat"
@@ -64,6 +86,18 @@ function categoryColor(category: string): string {
         >
           {{ cat }}
         </span>
+      </div>
+    </div>
+
+    <div class="repo-body">
+      <div class="repo-title-row">
+        <RouterLink
+          :to="`/repositories/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`"
+          class="repo-name"
+          :data-testid="`repo-link-${repo.name}`"
+        >
+          {{ repo.owner }}/{{ repo.name }}
+        </RouterLink>
       </div>
       <p class="repo-description">{{ repo.description }}</p>
       <div class="repo-meta">
@@ -82,18 +116,19 @@ function categoryColor(category: string): string {
         <span class="repo-stars">{{ formatStars(repo.stars_count) }} stars</span>
       </div>
     </div>
+
     <div class="repo-growth">
       <div class="growth-metric">
         <span class="growth-label">今日</span>
-        <span class="growth-value">{{ formatGrowth(repo.daily_stars) }}</span>
+        <span class="growth-value" :class="growthClass(repo.daily_stars)">{{ formatGrowth(repo.daily_stars) }}</span>
       </div>
       <div class="growth-metric">
         <span class="growth-label">7 日</span>
-        <span class="growth-value">{{ formatGrowth(repo.weekly_stars) }}</span>
+        <span class="growth-value" :class="growthClass(repo.weekly_stars)">{{ formatGrowth(repo.weekly_stars) }}</span>
       </div>
       <div class="growth-metric">
         <span class="growth-label">30 日</span>
-        <span class="growth-value">{{ formatGrowth(repo.monthly_stars) }}</span>
+        <span class="growth-value" :class="growthClass(repo.monthly_stars)">{{ formatGrowth(repo.monthly_stars) }}</span>
       </div>
       <SparklineChart :points="repo.trend" />
       <a
@@ -104,63 +139,142 @@ function categoryColor(category: string): string {
         :aria-label="`在 GitHub 上打开 ${repo.owner}/${repo.name}`"
         data-testid="external-link"
       >
-        <ExternalLink :size="16" aria-hidden="true" />
+        <ExternalLink :size="15" aria-hidden="true" />
       </a>
     </div>
   </article>
 </template>
 
 <style scoped>
-.repo-item {
+.repo-card {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-4);
-  padding: var(--spacing-4);
+  flex-direction: column;
+  min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  background-color: var(--color-bg);
+  background: var(--color-canvas);
+  overflow: hidden;
+  transition: border-color 400ms ease, transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 500ms ease;
 }
 
-.repo-item:hover {
-  border-color: var(--color-accent);
+.repo-card:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-5px);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
 }
 
-.repo-main {
-  flex: 1;
-  min-width: 0;
+.repo-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: linear-gradient(150deg, var(--surface-glass-strong), var(--color-canvas-subtle));
+}
+
+.repo-media-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(0.3) contrast(1.05) brightness(0.88) saturate(0.95);
+  transform: scale(1.01);
+  transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1), filter 700ms ease;
+}
+
+.repo-card:hover .repo-media-img {
+  transform: scale(1.06);
+  filter: grayscale(0.05) contrast(1.04) brightness(0.96) saturate(1.05);
+}
+
+[data-theme='dark'] .repo-media-img {
+  filter: grayscale(0.32) contrast(1.02) brightness(0.72) saturate(0.9);
+}
+
+[data-theme='dark'] .repo-card:hover .repo-media-img {
+  filter: grayscale(0.08) contrast(1.02) brightness(0.86) saturate(1);
+}
+
+[data-theme='dark'] .repo-media-shade {
+  background: linear-gradient(180deg, rgba(5, 8, 11, 0.5) 0%, rgba(5, 8, 11, 0.12) 42%, rgba(5, 8, 11, 0.7) 100%);
+}
+
+.repo-media-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(5, 8, 11, 0.42) 0%, transparent 42%, rgba(5, 8, 11, 0.62) 100%);
+}
+
+[data-theme='light'] .repo-media-shade {
+  background: linear-gradient(180deg, rgba(20, 22, 18, 0.3) 0%, transparent 46%, rgba(20, 22, 18, 0.42) 100%);
+}
+
+.repo-media-top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repo-rank {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.repo-category {
+  padding: 3px 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgba(7, 9, 12, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.repo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 12px;
 }
 
 .repo-title-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
+  gap: 8px;
 }
 
 .repo-name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 200ms ease;
 }
 
 .repo-name:hover {
   color: var(--color-accent);
-  text-decoration: none;
-}
-
-.repo-category {
-  padding: 1px 8px;
-  border: 1px solid currentColor;
-  border-radius: 100px;
-  font-size: 11px;
-  font-weight: 600;
 }
 
 .repo-description {
-  margin-top: var(--spacing-1);
-  font-size: 13px;
+  min-height: 40px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
   word-break: break-word;
 }
 
@@ -168,89 +282,105 @@ function categoryColor(category: string): string {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--spacing-3);
-  margin-top: var(--spacing-3);
+  gap: 8px;
 }
 
 .repo-topic {
-  padding: 2px 8px;
-  border-radius: 100px;
-  background-color: var(--color-canvas);
-  color: var(--color-accent);
-  font-size: 11px;
+  padding: 2px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  transition: border-color 200ms ease, color 200ms ease;
+}
+
+.repo-card:hover .repo-topic {
+  border-color: var(--color-border-strong);
 }
 
 .repo-language {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-1);
-  font-size: 12px;
+  gap: 6px;
   color: var(--color-text-secondary);
+  font-size: 11px;
 }
 
 .language-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .repo-stars {
-  font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
+  font-size: 11px;
 }
 
 .repo-growth {
   display: flex;
   align-items: center;
-  gap: var(--spacing-4);
-  flex-shrink: 0;
+  gap: 16px;
+  margin-top: auto;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--color-border);
 }
 
 .growth-metric {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  min-width: 44px;
+  gap: 2px;
+  min-width: 46px;
 }
 
 .growth-label {
-  font-size: 11px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 .growth-value {
   font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.growth-value.is-up {
+  color: var(--color-accent);
+}
+
+.growth-value.is-down {
+  color: var(--color-danger);
+}
+
+.growth-value.is-flat {
+  color: var(--color-text-muted);
 }
 
 .repo-external {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-button);
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
   color: var(--color-text-secondary);
+  transition: border-color 200ms ease, color 200ms ease, transform 200ms ease;
 }
 
 .repo-external:hover {
+  border-color: var(--color-accent);
   color: var(--color-accent);
-  background-color: var(--color-canvas);
+  transform: translateY(-2px);
 }
 
-@media (max-width: 768px) {
-  .repo-item {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
+@media (max-width: 640px) {
   .repo-growth {
-    justify-content: space-between;
-  }
-
-  .growth-metric {
-    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
   }
 }
 </style>

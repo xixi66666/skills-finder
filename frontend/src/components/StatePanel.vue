@@ -21,7 +21,11 @@ const emit = defineEmits<{
     aria-busy="true"
     aria-label="正在加载"
   >
-    <div v-for="n in 5" :key="n" class="skeleton-row"></div>
+    <div v-for="n in 6" :key="n" class="skeleton-card">
+      <div class="skeleton-media"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line is-short"></div>
+    </div>
   </section>
 
   <section
@@ -29,8 +33,10 @@ const emit = defineEmits<{
     class="state-panel state-centered"
     :data-testid="`${variant}-state`"
   >
-    <Inbox v-if="variant === 'empty'" :size="32" class="state-icon" aria-hidden="true" />
-    <AlertTriangle v-else :size="32" class="state-icon" aria-hidden="true" />
+    <span class="state-icon-wrap" aria-hidden="true">
+      <Inbox v-if="variant === 'empty'" :size="26" />
+      <AlertTriangle v-else :size="26" />
+    </span>
     <h2 class="state-title">{{ title }}</h2>
     <p v-if="message" class="state-message">{{ message }}</p>
     <button
@@ -48,55 +54,96 @@ const emit = defineEmits<{
 
 <style scoped>
 .state-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  grid-auto-flow: dense;
+}
+
+.skeleton-card {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-canvas);
+}
+
+.skeleton-media {
+  aspect-ratio: 16 / 9;
+  border-radius: calc(var(--radius-card) - 8px);
+  background: var(--color-skeleton);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--color-skeleton);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.skeleton-line.is-short {
+  width: 56%;
 }
 
 .state-centered {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-6);
+  gap: 10px;
+  min-height: 320px;
+  padding: 56px 24px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
   text-align: center;
   color: var(--color-text-secondary);
 }
 
-.state-icon {
-  margin-bottom: var(--spacing-2);
-  opacity: 0.7;
+.state-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--surface-glass);
+  color: var(--color-accent);
 }
 
 .state-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
 }
 
 .state-message {
+  max-width: 420px;
   font-size: 13px;
 }
 
 .state-action {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-1);
-  margin-top: var(--spacing-3);
-  padding: 6px 12px;
-  border: 1px solid var(--color-border);
+  gap: 8px;
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 22px;
+  border: 0;
   border-radius: var(--radius-button);
-  background-color: transparent;
-  color: var(--color-accent);
+  background: var(--color-accent-emphasis);
+  color: var(--color-accent-ink);
   font-size: 13px;
+  font-weight: 700;
+  transition: transform 200ms ease;
 }
 
 .state-action:hover {
-  background-color: var(--color-canvas);
-}
-
-.skeleton-row {
-  height: 64px;
-  border-radius: var(--radius-card);
-  background-color: var(--color-skeleton);
-  animation: pulse 1.2s ease-in-out infinite;
+  transform: translateY(-2px);
 }
 
 @keyframes pulse {
@@ -104,8 +151,9 @@ const emit = defineEmits<{
   100% {
     opacity: 1;
   }
+
   50% {
-    opacity: 0.45;
+    opacity: 0.4;
   }
 }
 </style>

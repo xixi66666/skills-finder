@@ -355,7 +355,7 @@ function formatDateTime(value: string): string {
 
 .direction-tab.active {
   background-color: var(--color-accent-emphasis);
-  color: #ffffff;
+  color: var(--color-accent-ink);
 }
 
 .toolbar-meta {
@@ -382,7 +382,7 @@ function formatDateTime(value: string): string {
   border: 1px solid var(--color-accent-emphasis);
   border-radius: var(--radius-button);
   background: var(--color-accent-emphasis);
-  color: var(--color-header-text);
+  color: var(--color-accent-ink);
   font: inherit;
   font-size: 13px;
   font-weight: 600;

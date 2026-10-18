@@ -294,7 +294,7 @@ onUnmounted(() => controller?.abort())
   padding: 6px 12px;
   border-radius: var(--radius-button);
   background-color: var(--color-accent-emphasis);
-  color: #ffffff;
+  color: var(--color-accent-ink);
 }
 
 .github-link:hover {
